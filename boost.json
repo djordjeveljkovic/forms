@@ -1,0 +1,26 @@
+{
+    "agents": [
+        "junie",
+        "claude_code",
+        "opencode",
+        "antigravity",
+        "zed",
+        "codex"
+    ],
+    "cloud": false,
+    "guidelines": true,
+    "mcp": true,
+    "nightwatch": false,
+    "packages": [
+        "livewire/blaze"
+    ],
+    "sail": false,
+    "skills": [
+        "fortify-development",
+        "laravel-best-practices",
+        "fluxui-development",
+        "livewire-development",
+        "tailwindcss-development",
+        "blaze-optimize"
+    ]
+}

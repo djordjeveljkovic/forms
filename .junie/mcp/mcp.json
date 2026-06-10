@@ -1,0 +1,11 @@
+{
+    "mcpServers": {
+        "laravel-boost": {
+            "command": "/usr/bin/php",
+            "args": [
+                "/home/usrtmp/Projects/local/mare/forms/artisan",
+                "boost:mcp"
+            ]
+        }
+    }
+}
