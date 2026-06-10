@@ -9,16 +9,24 @@ ARG NODE_VERSION=22
 
 FROM node:${NODE_VERSION}-bookworm-slim AS node_assets
 WORKDIR /app
+# Copy package files first to cache the npm install layer.
 COPY package.json package-lock.json* bun.lock* ./
 RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; \
     elif [ -f bun.lockb ]; then npm install -g bun && bun install --frozen-lockfile; \
     else npm install --no-audit --no-fund; fi
-COPY resources/ vite.config.js ./
+# Copy Vite config + resource sources for the production build.
+COPY vite.config.js ./
+COPY resources/ ./resources/
 # Bring in only the public files that don't change between builds. We
 # rebuild public/build/ from scratch below, so we exclude build/, hot
 # and storage to avoid shipping stale dev artefacts.
-COPY public/index.php public/.htaccess public/favicon.ico public/favicon.svg \
-     public/apple-touch-icon.png public/robots.txt ./public/
+RUN mkdir -p ./public
+COPY public/index.php ./public/index.php
+COPY public/.htaccess ./public/.htaccess
+COPY public/favicon.ico ./public/favicon.ico
+COPY public/favicon.svg ./public/favicon.svg
+COPY public/apple-touch-icon.png ./public/apple-touch-icon.png
+COPY public/robots.txt ./public/robots.txt
 RUN npm run build
 
 # -----------------------------------------------------------------------------
