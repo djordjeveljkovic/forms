@@ -13,7 +13,12 @@ COPY package.json package-lock.json* bun.lock* ./
 RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; \
     elif [ -f bun.lockb ]; then npm install -g bun && bun install --frozen-lockfile; \
     else npm install --no-audit --no-fund; fi
-COPY resources/ public/ vite.config.js tailwind.config.js postcss.config.js* ./
+COPY resources/ vite.config.js ./
+# Bring in only the public files that don't change between builds. We
+# rebuild public/build/ from scratch below, so we exclude build/, hot and
+# storage to avoid shipping stale dev artefacts.
+COPY public/index.php public/.htaccess* public/favicon.ico public/favicon.svg \
+     public/apple-touch-icon.png public/robots.txt public/fonts-manifest.json* ./public/ 2>/dev/null || true
 RUN npm run build
 
 # -----------------------------------------------------------------------------
