@@ -67,6 +67,9 @@ class FormImport extends Component
      */
     public function updatedFile(): void
     {
+        $this->validateOnly('file', [
+            'file' => ['nullable', 'file', 'mimetypes:application/json,text/plain', 'max:512'],
+        ]);
         $this->resetPreview();
         $this->previewFromFile();
     }

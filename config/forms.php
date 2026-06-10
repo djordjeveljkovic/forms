@@ -35,4 +35,20 @@ return [
     */
 
     'global_allowed_origins' => array_filter(explode(',', (string) env('FORMS_GLOBAL_ALLOWED_ORIGINS', ''))),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Trusted proxies
+    |--------------------------------------------------------------------------
+    |
+    | When the application runs behind one or more reverse proxies (Laravel
+    | Cloud, nginx, Cloudflare, a load balancer, etc.) the real client IP,
+    | scheme, and host are conveyed via X-Forwarded-* headers. To read those
+    | headers, the application must declare which proxies it trusts. Use "*"
+    | to trust the first hop, or a comma-separated list of IPs / CIDR ranges.
+    | Leave empty to keep the framework default (do not trust proxies).
+    |
+    */
+
+    'trusted_proxies' => env('TRUSTED_PROXIES') ?: null,
 ];

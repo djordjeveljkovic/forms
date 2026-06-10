@@ -21,6 +21,17 @@ class FormSubmissionValidator
      */
     public static function make(Form $form, array $data): ValidatorContract
     {
+        // Reject oversized payloads early to protect against memory pressure.
+        $maxKb = (int) config('forms.max_submission_size_kb', 256);
+        $approxBytes = strlen(json_encode($data) ?: '');
+        if ($maxKb > 0 && $approxBytes > $maxKb * 1024) {
+            return Validator::make(['data' => $data], [
+                'data' => ['required', 'array', function (string $attribute, mixed $value, \Closure $fail) use ($maxKb): void {
+                    $fail("Submission is larger than the {$maxKb} KB limit.");
+                }],
+            ]);
+        }
+
         $fields = $form->activeFields();
 
         // Forms without any configured fields fall back to a permissive rule
