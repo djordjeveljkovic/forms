@@ -17,26 +17,6 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'form.key' => VerifyFormApiKey::class,
         ]);
-
-        // Trust proxy headers when behind a load balancer (Laravel Cloud,
-        // nginx, etc.). Set TRUSTED_PROXIES in production (e.g. "*" or a
-        // comma-separated list of IPs/CIDRs) so the request IP, scheme,
-        // and host are read from X-Forwarded-* headers.
-        //
-        // Note: this runs at bootstrap time before the config repository is
-        // bound, so we must read the env value directly. The same value is
-        // also available as config('forms.trusted_proxies') at runtime.
-        $trustedProxies = env('TRUSTED_PROXIES');
-        if (! empty($trustedProxies)) {
-            $middleware->trustProxies(
-                at: $trustedProxies,
-                headers: Request::HEADER_X_FORWARDED_FOR
-                    | Request::HEADER_X_FORWARDED_HOST
-                    | Request::HEADER_X_FORWARDED_PORT
-                    | Request::HEADER_X_FORWARDED_PROTO
-                    | Request::HEADER_X_FORWARDED_PREFIX
-            );
-        }
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Middleware\TrustProxies as TrustProxiesMiddleware;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -28,6 +29,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
         $this->configureRateLimiters();
+        $this->configureTrustedProxies();
     }
 
     /**
@@ -66,5 +68,39 @@ class AppServiceProvider extends ServiceProvider
 
             return Limit::perHour($perHour)->by($key);
         });
+    }
+
+    /**
+     * Configure trusted proxies when the app runs behind a load balancer.
+     *
+     * Reads the comma-separated list (or "*") from config('forms.trusted_proxies')
+     * and tells the framework to honour X-Forwarded-* headers.
+     */
+    protected function configureTrustedProxies(): void
+    {
+        $proxies = config('forms.trusted_proxies');
+        if (empty($proxies)) {
+            return;
+        }
+
+        $proxies = $proxies === '*'
+            ? '*'
+            : collect(explode(',', (string) $proxies))
+                ->map(fn (string $entry) => trim($entry))
+                ->filter()
+                ->all();
+
+        if (empty($proxies)) {
+            return;
+        }
+
+        TrustProxiesMiddleware::at($proxies);
+        TrustProxiesMiddleware::withHeaders(
+            Request::HEADER_X_FORWARDED_FOR
+            | Request::HEADER_X_FORWARDED_HOST
+            | Request::HEADER_X_FORWARDED_PORT
+            | Request::HEADER_X_FORWARDED_PROTO
+            | Request::HEADER_X_FORWARDED_PREFIX
+        );
     }
 }
