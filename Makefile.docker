@@ -1,0 +1,133 @@
+# Docker convenience targets. Renamed Makefile so the host can keep their
+# own Makefile without conflicts; symlink as `make -f Makefile.docker <target>`
+# or rename when ready.
+#
+# Example:
+#   make -f Makefile.docker up
+#   make -f Makefile.docker migrate
+#   make -f Makefile.docker logs
+#   make -f Makefile.docker shell
+#   make -f Makefile.docker key
+
+COMPOSE       = docker compose
+EXEC          = $(COMPOSE) exec app
+EXEC_ROOT     = $(COMPOSE) exec -u root app
+RUN_ONCE      = $(COMPOSE) run --rm app
+MYSQL         = $(COMPOSE) exec mysql
+
+.DEFAULT_GOAL := help
+
+help:  ## Show this help.
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
+
+.PHONY: up
+up:  ## Build images and start the stack in detached mode
+	$(COMPOSE) up -d --build
+	@echo "Stack is up. Visit $(shell grep '^APP_URL=' .env 2>/dev/null | cut -d= -f2 || echo http://localhost:8080)"
+
+.PHONY: down
+down:  ## Stop the stack (keeps volumes)
+	$(COMPOSE) down
+
+.PHONY: down-v
+down-v:  ## Stop the stack and WIPE all data (volumes)
+	$(COMPOSE) down -v
+
+.PHONY: build
+build:  ## Rebuild the app image without restarting
+	$(COMPOSE) build app
+
+.PHONY: rebuild
+rebuild:  ## Rebuild the app image from scratch (no cache)
+	$(COMPOSE) build --no-cache app
+
+.PHONY: logs
+logs:  ## Tail logs for all services
+	$(COMPOSE) logs -f --tail=100
+
+.PHONY: logs-app
+logs-app:  ## Tail logs for the app service only
+	$(COMPOSE) logs -f --tail=100 app
+
+.PHONY: shell
+shell:  ## Open a bash shell inside the app container
+	$(EXEC) bash
+
+.PHONY: root-shell
+root-shell:  ## Open a root bash shell inside the app container
+	$(EXEC_ROOT) bash
+
+.PHONY: artisan
+artisan:  ## Run `php artisan <cmd>` inside the app container
+	$(EXEC) php artisan $(filter-out $@,$(wordlist 2,$(words $(MAKECMDGOALS)),$@))
+
+.PHONY: tinker
+tinker:  ## Open a tinker REPL
+	$(EXEC) php artisan tinker
+
+.PHONY: key
+key:  ## Generate APP_KEY and write it into .env
+	@if [ ! -f .env ]; then cp .env.docker.example .env; fi
+	$(RUN_ONCE) php artisan key:generate --force
+
+.PHONY: migrate
+migrate:  ## Run database migrations
+	$(EXEC) php artisan migrate --force
+
+.PHONY: seed
+seed:  ## Seed the database with demo data
+	$(EXEC) php artisan db:seed
+
+.PHONY: fresh
+fresh:  ## Drop all tables, re-migrate, seed (DESTRUCTIVE)
+	$(EXEC) php artisan migrate:fresh --seed --force
+
+.PHONY: deploy
+deploy:  ## Cache views/config/routes/events for production
+	$(EXEC) php artisan app:deploy --no-migrate
+
+.PHONY: install
+install:  ## Full first-time install: key, migrate, seed, deploy
+	$(MAKE) -f Makefile.docker key
+	$(MAKE) -f Makefile.docker migrate
+	$(MAKE) -f Makefile.docker seed
+	$(MAKE) -f Makefile.docker deploy
+
+.PHONY: test
+test:  ## Run the test suite inside the app container
+	$(EXEC) php artisan test
+
+.PHONY: pint
+pint:  ## Format the codebase with Pint
+	$(EXEC) vendor/bin/pint
+
+.PHONY: phpstan
+phpstan:  ## Run static analysis
+	$(EXEC) vendor/bin/phpstan analyse
+
+.PHONY: queue
+queue:  ## Tail the queue worker logs
+	$(COMPOSE) logs -f --tail=100 app | grep queue
+
+.PHONY: queue-restart
+queue-restart:  ## Restart the queue workers
+	$(EXEC_ROOT) supervisorctl restart queue-worker-default:*
+
+.PHONY: mysql-shell
+mysql-shell:  ## Open a MySQL shell
+	$(MYSQL) mysql -u root -p"$$DB_ROOT_PASSWORD" "$$DB_DATABASE"
+
+.PHONY: mysql-dump
+mysql-dump:  ## Dump the database to ./backups/forms_*.sql.gz
+	@mkdir -p backups
+	$(MYSQL) sh -c 'mysqldump --single-transaction --routines --triggers -u root -p"$$MYSQL_ROOT_PASSWORD" "$$MYSQL_DATABASE" | gzip -9' > backups/forms_$$(date -u +%Y%m%dT%H%M%SZ).sql.gz
+	@echo "Backup written to backups/"
+
+.PHONY: backup-up
+backup-up:  ## Start the daily backup container (opt-in profile)
+	$(COMPOSE) --profile backup up -d
+
+.PHONY: clean
+clean:  ## Remove all stopped containers, dangling images, and orphan volumes
+	$(COMPOSE) down --remove-orphans
+	docker system prune -f

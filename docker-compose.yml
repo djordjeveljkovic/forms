@@ -1,0 +1,252 @@
+# =============================================================================
+# Forms - production-like stack with persistent MySQL
+# -----------------------------------------------------------------------------
+#   docker compose up -d                 # boot the stack
+#   docker compose exec app php artisan migrate --force
+#   docker compose exec app php artisan db:seed
+#   docker compose exec app php artisan app:deploy
+#   docker compose logs -f app
+#   docker compose down                  # stop (keeps data)
+#   docker compose down -v               # stop and WIPE all data
+# =============================================================================
+
+x-app-base: &app-base
+  build:
+    context: .
+    dockerfile: docker/php/Dockerfile
+  image: forms-app:latest
+  restart: unless-stopped
+  networks: [forms]
+  depends_on:
+    mysql:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  environment: &app-env
+    # ---- Core ----
+    APP_NAME: "${APP_NAME:Forms}"
+    APP_ENV: "${APP_ENV:production}"
+    APP_KEY: "${APP_KEY}"
+    APP_DEBUG: "${APP_DEBUG:false}"
+    APP_URL: "${APP_URL:http://localhost:8080}"
+    APP_LOCALE: en
+    APP_FALLBACK_LOCALE: en
+    APP_FAKER_LOCALE: en_US
+
+    # ---- Logging ----
+    LOG_CHANNEL: stack
+    LOG_STACK: single
+    LOG_DEPRECATIONS_CHANNEL: null
+    LOG_LEVEL: "${LOG_LEVEL:info}"
+
+    # ---- Database (MySQL on the docker network) ----
+    DB_CONNECTION: mysql
+    DB_HOST: mysql
+    DB_PORT: 3306
+    DB_DATABASE: "${DB_DATABASE:forms}"
+    DB_USERNAME: "${DB_USERNAME:forms}"
+    DB_PASSWORD: "${DB_PASSWORD:forms}"
+    DB_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:forms_root}"
+
+    # ---- Session / Cache / Queue / Broadcasting ----
+    SESSION_DRIVER: database
+    SESSION_LIFETIME: 120
+    SESSION_ENCRYPT: "true"
+    SESSION_SECURE_COOKIE: "true"
+    SESSION_PATH: /
+    SESSION_DOMAIN: null
+
+    CACHE_STORE: redis
+    CACHE_PREFIX: forms
+
+    QUEUE_CONNECTION: redis
+    REDIS_CLIENT: phpredis
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+    REDIS_PASSWORD: null
+
+    BROADCAST_CONNECTION: log
+
+    # ---- Mail (log driver by default; replace with smtp/ses/resend in prod) ----
+    MAIL_MAILER: "${MAIL_MAILER:log}"
+    MAIL_HOST: "${MAIL_HOST:127.0.0.1}"
+    MAIL_PORT: "${MAIL_PORT:2525}"
+    MAIL_USERNAME: "${MAIL_USERNAME:null}"
+    MAIL_PASSWORD: "${MAIL_PASSWORD:null}"
+    MAIL_FROM_ADDRESS: "${MAIL_FROM_ADDRESS:hello@example.com}"
+    MAIL_FROM_NAME: "${MAIL_FROM_NAME:${APP_NAME}}"
+
+    # ---- Storage / Filesystem ----
+    FILESYSTEM_DISK: local
+
+    # ---- Public-facing form settings ----
+    FORMS_MAX_SUBMISSION_SIZE_KB: 256
+    FORMS_SUBMISSION_RATE_LIMIT: 60
+    FORMS_GLOBAL_ALLOWED_ORIGINS: "${FORMS_GLOBAL_ALLOWED_ORIGINS:}"
+
+    # ---- Trust the first proxy hop (we're behind nginx in the same container) ----
+    TRUSTED_PROXIES: "*"
+
+    # ---- Misc ----
+    BCRYPT_ROUNDS: "${BCRYPT_ROUNDS:12}"
+    MAINTENANCE_DRIVER: file
+
+services:
+  # ---------------------------------------------------------------------------
+  # Application + web server + queue workers (single container, supervisord)
+  # ---------------------------------------------------------------------------
+  app:
+    <<: *app-base
+    container_name: forms-app
+    hostname: forms-app
+    ports:
+      - "${APP_PORT:-8080}:80"
+    volumes:
+      # Persistent application-generated files (logs, cache, user uploads).
+      # Mount specific subdirs rather than the whole storage/ to keep the
+      # app code immutable at runtime.
+      - forms-storage:/var/www/html/storage
+      - forms-cache:/var/www/html/bootstrap/cache
+    healthcheck:
+      test: ["CMD", "app-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 1024M
+
+  # ---------------------------------------------------------------------------
+  # MySQL with persistent storage
+  # ---------------------------------------------------------------------------
+  mysql:
+    image: mysql:8.4
+    container_name: forms-mysql
+    hostname: forms-mysql
+    restart: unless-stopped
+    networks: [forms]
+    environment:
+      MYSQL_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:forms_root}"
+      MYSQL_DATABASE: "${DB_DATABASE:forms}"
+      MYSQL_USER: "${DB_USERNAME:forms}"
+      MYSQL_PASSWORD: "${DB_PASSWORD:forms}"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=caching_sha2_password
+      - --max-connections=200
+      - --innodb-buffer-pool-size=256M
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./docker/mysql/my.cnf:/etc/mysql/conf.d/app.cnf:ro
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    healthcheck:
+      test:
+        - CMD
+        - mysqladmin
+        - ping
+        - -h
+        - 127.0.0.1
+        - -u$$MYSQL_USER
+        - -p$$MYSQL_PASSWORD
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768M
+
+  # ---------------------------------------------------------------------------
+  # Redis for cache + queue broker
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7.4-alpine
+    container_name: forms-redis
+    hostname: forms-redis
+    restart: unless-stopped
+    networks: [forms]
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 192mb
+      - --maxmemory-policy
+      - allkeys-lru
+    volumes:
+      - redis-data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  # ---------------------------------------------------------------------------
+  # Database backup (scheduled via cron, opt-in via --profile backup)
+  # ---------------------------------------------------------------------------
+  backup:
+    build:
+      context: .
+      dockerfile: docker/backup/Dockerfile
+    image: forms-backup:latest
+    container_name: forms-backup
+    restart: unless-stopped
+    networks: [forms]
+    profiles: ["backup"]    # opt-in: `docker compose --profile backup up -d`
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_USER: root
+      MYSQL_ROOT_PASSWORD: "${DB_ROOT_PASSWORD:forms_root}"
+      MYSQL_DATABASE: "${DB_DATABASE:forms}"
+      BACKUP_RETENTION_DAYS: "${BACKUP_RETENTION_DAYS:-14}"
+    volumes:
+      - forms-backups:/backups
+      - ./docker/backup/backup.sh:/usr/local/bin/backup.sh:ro
+      - ./docker/backup/crontab:/etc/cron.d/forms-backup:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        chmod +x /usr/local/bin/backup.sh
+        crontab /etc/cron.d/forms-backup
+        echo "Backup schedule installed. Running first backup now."
+        /usr/local/bin/backup.sh
+        echo "Starting cron daemon..."
+        exec crond -f -L /var/log/cron.log
+
+volumes:
+  mysql-data:
+    name: forms-mysql-data
+  redis-data:
+    name: forms-redis-data
+  forms-storage:
+    name: forms-storage
+  forms-cache:
+    name: forms-bootstrap-cache
+  forms-backups:
+    name: forms-backups
+
+networks:
+  forms:
+    name: forms-net
+    driver: bridge
