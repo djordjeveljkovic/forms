@@ -14,15 +14,16 @@ x-app-base: &app-base
   build:
     context: .
     dockerfile: docker/php/Dockerfile
-    # Always rebuild from the local Dockerfile. Never try to pull this
-    # image from a registry — there is no `forms-app` on Docker Hub. This
-    # protects against "pull access denied" errors when a previous build
-    # left a partial image in the local cache.
-    pull_policy: build
+  # Always rebuild from the local Dockerfile. Never try to pull this
+  # image from a registry — there is no `forms-app` on Docker Hub. This
+  # protects against "pull access denied" errors when a previous build
+  # left a partial image in the local cache.
+  #
   # NOTE: no `image:` here on purpose — we want Compose to use the
   # auto-generated project-scoped name (e.g. `forms-app`). Setting an
   # `image:` would re-tag the local build, and a stale tag from a
   # previous failed run would trigger "pull access denied" errors.
+  pull_policy: build
   restart: unless-stopped
   networks: [forms]
   depends_on:
@@ -213,7 +214,7 @@ services:
     build:
       context: .
       dockerfile: docker/backup/Dockerfile
-      pull_policy: build
+    pull_policy: build
     container_name: forms-backup
     restart: unless-stopped
     networks: [forms]
