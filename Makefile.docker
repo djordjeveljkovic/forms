@@ -22,7 +22,7 @@ help:  ## Show this help.
 
 .PHONY: up
 up:  ## Build images and start the stack in detached mode
-	$(COMPOSE) up -d --build
+	$(COMPOSE) up -d --build --remove-orphans
 	@echo "Stack is up. Visit $(shell grep '^APP_URL=' .env 2>/dev/null | cut -d= -f2 || echo http://localhost:8080)"
 
 .PHONY: down
@@ -35,11 +35,11 @@ down-v:  ## Stop the stack and WIPE all data (volumes)
 
 .PHONY: build
 build:  ## Rebuild the app image without restarting
-	$(COMPOSE) build app
+	$(COMPOSE) build app --no-cache
 
 .PHONY: rebuild
-rebuild:  ## Rebuild the app image from scratch (no cache)
-	$(COMPOSE) build --no-cache app
+rebuild:  ## Rebuild the app image from scratch (no cache) and restart
+	$(COMPOSE) up -d --build --no-cache app
 
 .PHONY: logs
 logs:  ## Tail logs for all services

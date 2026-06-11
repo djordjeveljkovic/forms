@@ -147,6 +147,16 @@ docker compose exec app supervisorctl status
 docker compose exec app supervisorctl restart queue-worker-default:*
 ```
 
+**"pull access denied for forms-app"**
+Your previous build left a stale image tag in the local cache. The new
+docker-compose.yml uses `pull_policy: build` and drops the fixed `image:`
+tag, so this should not happen again. To recover:
+```bash
+docker compose down --remove-orphans
+docker image prune -f        # remove the stale forms-app tag
+make -f Makefile.docker up   # rebuild from scratch
+```
+
 **Want to wipe everything and start over**
 ```bash
 docker compose down -v --remove-orphans
