@@ -44,6 +44,7 @@ RUN apt-get update \
         libssl-dev \
         libcurl4-openssl-dev \
         libsqlite3-dev \
+        libmemcached-dev \
         libmemcached11 \
         libmemcachedutil2 \
         librabbitmq4 \
@@ -69,9 +70,15 @@ RUN apt-get update \
         session \
         tokenizer \
         xml \
-        zip \
-    && pecl install redis memcached \
-    && docker-php-ext-enable redis memcached \
+        zip unzip \
+    # Redis is the production cache/queue backend (see CACHE_STORE=redis in
+    # .env.docker.example). We install it as a pecl extension. Memcached is
+    # also available for users who want to switch CACHE_STORE=memcached; it
+    # needs libmemcached-dev (added above) to compile.
+    && pecl install redis \
+    && docker-php-ext-enable redis \
+    && pecl install memcached \
+    && docker-php-ext-enable memcached \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Composer is copied from the official image into every stage that needs it.
