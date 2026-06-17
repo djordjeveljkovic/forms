@@ -12,11 +12,11 @@
 #                     public/build/ from (3), installs supervisord + nginx
 # =============================================================================
 
-ARG PHP_VERSION=8.3
+ARG PHP_VERSION=8.4
 ARG NODE_VERSION=22
 
 # -----------------------------------------------------------------------------
-# 1. Base image — PHP 8.3 FPM with all extensions needed by Laravel + Flux
+# 1. Base image — PHP 8.4 FPM with all extensions needed by Laravel + Flux
 # -----------------------------------------------------------------------------
 FROM php:${PHP_VERSION}-fpm-bookworm AS base
 
@@ -44,41 +44,32 @@ RUN apt-get update \
         libssl-dev \
         libcurl4-openssl-dev \
         libsqlite3-dev \
-        libmemcached-dev \
-        libmemcached11 \
-        libmemcachedutil2 \
         librabbitmq4 \
         libzip4 \
         supervisor \
         nginx-light \
         zip unzip \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
-    && docker-php-ext-install -j$(nproc) \
-        bcmath \
-        ctype \
-        curl \
-        dom \
-        fileinfo \
-        filter \
-        hash \
-        iconv \
-        intl \
-        mbstring \
-        opcache \
-        pdo_mysql \
-        pdo_sqlite \
-        session \
-        tokenizer \
-        xml \
-        zip unzip \
+    # Install only the extensions that aren't already built into the PHP
+    # 8.3-fpm-bookworm image. hash/ctype/dom/fileinfo/filter/tokenizer/xml
+    # are static — docker-php-ext-install tries to build them anyway and
+    # fails because their Makefile expects a modules/ dir that never gets
+    # created.
+    && docker-php-ext-install -j1 bcmath \
+    && docker-php-ext-install -j1 curl \
+    && docker-php-ext-install -j1 intl \
+    && docker-php-ext-install -j1 mbstring \
+    && docker-php-ext-install -j1 opcache \
+    && docker-php-ext-install -j1 pdo_mysql \
+    && docker-php-ext-install -j1 pdo_sqlite \
+    && docker-php-ext-install -j1 session \
+    && docker-php-ext-install -j1 zip \
     # Redis is the production cache/queue backend (see CACHE_STORE=redis in
-    # .env.docker.example). We install it as a pecl extension. Memcached is
-    # also available for users who want to switch CACHE_STORE=memcached; it
-    # needs libmemcached-dev (added above) to compile.
-    && pecl install redis \
+    # .env.docker.example). We install it as a pecl extension. We clear
+    # MAKEFLAGS first because docker-php-ext-install sets -j$(nproc) and
+    # pecl's make install races on the modules/ header dir.
+    && MAKEFLAGS= pecl install redis \
     && docker-php-ext-enable redis \
-    && pecl install memcached \
-    && docker-php-ext-enable memcached \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Composer is copied from the official image into every stage that needs it.

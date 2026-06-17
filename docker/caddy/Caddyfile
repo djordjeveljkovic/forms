@@ -1,0 +1,84 @@
+# =============================================================================
+# Caddyfile for forms.example.com
+#
+# How it works:
+#   - Caddy auto-provisions a Let's Encrypt TLS cert for any domain in a
+#     `site` block (no manual certbot dance required).
+#   - It reverse-proxies HTTPS traffic to the app container on port 8080.
+#   - It forwards the real client IP and protocol so Laravel can see
+#     them (we already set TRUSTED_PROXIES=* in .env so Laravel trusts
+#     these headers).
+#   - The Livewire WebSocket endpoint works out of the box (Caddy supports
+#     HTTP/1.1 upgrade natively).
+#
+# Customise the two `email` placeholders below before running.
+# =============================================================================
+
+# Optional: redirect www to apex
+# www.example.com {
+#     redir https://example.com{uri} permanent
+# }
+
+forms.example.com, www.forms.example.com {
+    encode zstd gzip
+
+    # Reverse proxy to the Docker-published app port.
+    reverse_proxy 127.0.0.1:8080 {
+        # Pass the real client IP and protocol to the app so rate limiting
+        # and origin checks work correctly.
+        header_up X-Real-IP       {remote_host}
+        header_up X-Forwarded-For  {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host  {host}
+        header_up X-Forwarded-Port  {server_port}
+
+        # Timeouts (Livewire long-poll can take a while).
+        transport http {
+            dial_timeout  5s
+            response_timeout 120s
+        }
+    }
+
+    # Cap request body size (matches our nginx config inside the container).
+    request_body {
+        max_size 16MB
+    }
+
+    # Security headers. Caddy sets a sensible default `Strict-Transport-Security`
+    # automatically; we just add the rest.
+    header {
+        # Lock the framing and MIME behaviour.
+        X-Frame-Options        "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection       "0"
+        Referrer-Policy        "strict-origin-when-cross-origin"
+        Permissions-Policy     "geolocation=(), microphone=(), camera=()"
+
+        # Content Security Policy. Livewire and Flux both use inline
+        # scripts/styles for the WebSocket bootstrap and the Alpine.js
+        # expressions, so we allow 'unsafe-inline' / 'unsafe-eval' for
+        # scripts and styles. This is a sensible default for a self-hosted
+        # forms backend; tighten if you don't need Livewire's runtime
+        # scripts.
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' wss: https:; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
+
+        # HSTS (1 year, include subdomains, opt in to the preload list).
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+
+        # Remove the Server header (don't leak Caddy version).
+        -Server
+    }
+
+    # Per-vhost log file with daily rotation, 14 days retention.
+    log {
+        output file /var/log/caddy/forms.log {
+            roll_size 100mb
+            roll_keep 14
+            roll_local_time
+        }
+    }
+
+    # ACME account email (Let's Encrypt will email you about cert renewals
+    # and any problems with your account).
+    email "ops@example.com"
+}

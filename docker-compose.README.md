@@ -126,6 +126,26 @@ A full rebuild takes ~3-5 minutes on a clean machine (most of it is
 
 ---
 
+## Deployment to a real VPS
+
+For a full step-by-step guide to deploying on a VPS with Caddy + Let's Encrypt
++ automatic Let's Encrypt + UFW firewall + fail2ban + unattended-upgrades +
+backups, see [`docs/DEPLOY.md`](docs/DEPLOY.md).
+
+The quick path:
+
+1. Get a VPS with Ubuntu 24.04 (Hetzner, DO, Vultr — pick your poison)
+2. Point `forms.example.com` DNS A record to the VPS IP
+3. SSH in and run `sudo bash scripts/setup-vps.sh` from the cloned repo
+4. Edit `docker/caddy/Caddyfile` (change the domain + email) and drop it at `/etc/caddy/Caddyfile`
+5. `cd /opt/forms && sudo -u forms make -f Makefile.docker key`
+6. Edit `.env` (set `APP_URL`, `APP_KEY`, `DB_PASSWORD`, `MAIL_*`)
+7. `sudo -u forms make -f Makefile.docker up`
+8. `sudo systemctl reload caddy`
+9. Visit `https://forms.example.com` 🎉
+
+Subsequent deploys: `sudo -E -u forms ./scripts/deploy.sh`
+
 ## Troubleshooting
 
 **`app` container keeps restarting**
