@@ -94,6 +94,12 @@ RUN composer install \
 # Now copy the rest of the application. The vendor/ directory is reused
 # in the next stage, so we keep it around.
 COPY . .
+# `composer dump-autoload` triggers the `post-autoload-dump` script, which
+# runs `php artisan package:discover` and writes bootstrap/cache/*.php.
+# Ensure the cache dir exists and is writable before that script runs.
+RUN mkdir -p bootstrap/cache \
+    && chown -R www-data:www-data bootstrap/cache storage \
+    && chmod -R 0775 bootstrap/cache storage
 RUN composer dump-autoload --classmap-authoritative --no-dev
 
 # -----------------------------------------------------------------------------
