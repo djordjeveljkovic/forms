@@ -109,7 +109,10 @@ services:
     container_name: forms-app
     hostname: forms-app
     ports:
-      - "${APP_PORT:-8080}:80"
+      # Default 8082 — 8080 is the de-facto local default and is often
+      # taken on shared VPS hosts (matomo, plausible, n8n, etc. all bind
+      # it). Override with APP_PORT=… in .env if 8082 also collides.
+      - "${APP_PORT:-8082}:80"
     volumes:
       # Persistent application-generated files (logs, cache, user uploads).
       # Mount specific subdirs rather than the whole storage/ to keep the
