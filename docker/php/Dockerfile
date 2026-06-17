@@ -95,9 +95,20 @@ RUN composer install \
 # in the next stage, so we keep it around.
 COPY . .
 # `composer dump-autoload` triggers the `post-autoload-dump` script, which
-# runs `php artisan package:discover` and writes bootstrap/cache/*.php.
-# Ensure the cache dir exists and is writable before that script runs.
-RUN mkdir -p bootstrap/cache \
+# runs `php artisan package:discover` and (transitively) instantiates the
+# View compiler. The default view.compiled path is
+# `realpath(storage_path('framework/views'))` — if that directory doesn't
+# exist, realpath() returns false and the compiler constructor throws
+# "Please provide a valid cache path." Create the storage skeleton first
+# so package:discover can run cleanly.
+RUN mkdir -p \
+        bootstrap/cache \
+        storage/framework/cache \
+        storage/framework/sessions \
+        storage/framework/views \
+        storage/framework/testing \
+        storage/logs \
+        storage/app/public \
     && chown -R www-data:www-data bootstrap/cache storage \
     && chmod -R 0775 bootstrap/cache storage
 RUN composer dump-autoload --classmap-authoritative --no-dev
