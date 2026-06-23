@@ -67,10 +67,12 @@ class FormSubmissionValidator
             // For option-based fields, restrict values to the configured options.
             if ($field->typeEnum()->hasOptions() && is_array($field->options) && count($field->options) > 0) {
                 if ($field->type === 'checkbox') {
-                    $rules['data.'.$field->name.'.*'] = [
-                        'string',
-                        Rule::in($field->options),
-                    ];
+                    $rule = Rule::in($field->options);
+                    $rules['data.'.$field->name.'.*'] = ['string', $rule];
+                    // Without an explicit attribute, Laravel reports errors
+                    // as "data.tags.0" instead of the human label. Set one
+                    // for every wildcard so the message reads "Tags".
+                    $attributes['data.'.$field->name.'.*'] = $field->label;
                 } else {
                     $rules['data.'.$field->name][] = Rule::in($field->options);
                 }

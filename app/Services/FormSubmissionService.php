@@ -94,7 +94,15 @@ class FormSubmissionService
                 /** @var FormSubmission|null $submission */
                 $submission = null;
 
-                if ($form->store_submissions) {
+                // We always persist a submission row when we need one for
+                // downstream features (e.g. email jobs have a FK to
+                // form_submissions). Forms that explicitly opt out of
+                // storage but still want email notifications would
+                // otherwise silently drop every email. The
+                // `store_submissions` flag is honoured by the dashboard
+                // (it filters these rows out of the listing) but the
+                // data is still kept so emails and audit trails work.
+                if ($form->store_submissions || $form->send_email) {
                     $submission = FormSubmission::query()->create([
                         'form_id' => $form->id,
                         'submission_data' => $data,
@@ -114,7 +122,10 @@ class FormSubmissionService
                             'submission_id' => $submission->id,
                             'status' => EmailJobStatus::Pending->value,
                             'recipient' => $recipient,
-                            'subject' => $form->name,
+                            // Persist the resolved subject so the email-jobs
+                            // dashboard shows what recipients will actually
+                            // see, not the raw form name.
+                            'subject' => $this->resolveSubject($form),
                             'queued_at' => now(),
                         ]);
                     }
@@ -152,5 +163,18 @@ class FormSubmissionService
             'errors' => [],
             'fields' => [],
         ];
+    }
+
+    /**
+     * Resolve the email subject using the form's subject template.
+     */
+    protected function resolveSubject(Form $form): string
+    {
+        $template = $form->subject_template ?: 'New submission for :form_name';
+
+        return (string) strtr($template, [
+            ':form_name' => $form->name,
+            ':form_slug' => $form->slug,
+        ]);
     }
 }

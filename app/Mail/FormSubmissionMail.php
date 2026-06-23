@@ -60,8 +60,13 @@ class FormSubmissionMail extends Mailable
      */
     public function content(): Content
     {
+        // Use the markdown renderer so that <x-mail::layout>, <x-mail::header>,
+        // and the rest of Laravel's mail components resolve correctly. Using
+        // `view:` would fail at render time with "No hint path defined for
+        // [mail]." because the mail component namespace is only registered
+        // when the Markdown renderer runs.
         return new Content(
-            view: 'mail.form-submission',
+            markdown: 'mail.form-submission',
             text: 'mail.form-submission-text',
             with: [
                 'form' => $this->form,

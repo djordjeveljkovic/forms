@@ -187,4 +187,25 @@ class FormCreateTest extends TestCase
             ->call('save')
             ->assertHasErrors(['fields']);
     }
+
+    public function test_form_create_accepts_long_description_and_success_message(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $longDescription = str_repeat('a', 2000);
+        $longSuccess = str_repeat('b', 2000);
+
+        Livewire::test(FormCreate::class)
+            ->set('name', 'Long copy form')
+            ->set('description', $longDescription)
+            ->set('recipientEmails.0', 'admin@example.com')
+            ->set('subjectTemplate', 'Subject')
+            ->set('successMessage', $longSuccess)
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $form = Form::query()->where('name', 'Long copy form')->firstOrFail();
+        $this->assertSame(2000, strlen($form->description));
+        $this->assertSame(2000, strlen($form->success_message));
+    }
 }

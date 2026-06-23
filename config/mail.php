@@ -115,4 +115,24 @@ return [
         'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Markdown Mail Settings
+    |--------------------------------------------------------------------------
+    |
+    | Configure the theme and component paths for markdown-rendered emails.
+    | The `paths` entry tells the Markdown renderer where to look for custom
+    | <x-mail::...> components; the framework's defaults are always
+    | included, so an empty list is fine for out-of-the-box templates.
+    |
+    */
+
+    'markdown' => [
+        'theme' => env('MAIL_MARKDOWN_THEME', 'default'),
+
+        'paths' => [
+            resource_path('views/vendor/mail'),
+        ],
+    ],
+
 ];

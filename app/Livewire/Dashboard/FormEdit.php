@@ -139,7 +139,14 @@ class FormEdit extends Component
 
         Flux::toast(variant: 'success', text: __('Form updated.'));
 
-        // Refresh in-memory fields.
+        // Refresh the in-memory state so the UI matches what was just
+        // persisted. The recipient list is normalised on save
+        // (lowercased/trimmed), so without this re-sync the next edit
+        // would show the original (pre-normalised) values and silently
+        // re-apply the transform on every save.
+        $this->form->refresh();
+        $this->recipientEmails = $this->form->recipient_emails ?: [''];
+        $this->allowedOrigins = $this->form->allowed_origins ? implode("\n", $this->form->allowed_origins) : '';
         $this->fields = $this->form->fields()
             ->orderBy('position')
             ->get()

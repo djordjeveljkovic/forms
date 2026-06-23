@@ -260,6 +260,26 @@ class SubmissionApiTest extends TestCase
         $response->assertJsonValidationErrors(['data.plan']);
     }
 
+    public function test_submission_checkbox_error_uses_field_label(): void
+    {
+        $form = Form::factory()->create();
+        $form->fields()->create([
+            'name' => 'tags', 'label' => 'Tags', 'type' => 'checkbox', 'required' => false, 'position' => 0,
+            'options' => ['red', 'blue'],
+        ]);
+
+        $response = $this->postJson("/api/forms/{$form->slug}", [
+            'data' => ['tags' => ['purple']],
+        ], ['X-Form-Key' => $form->api_key]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors(['data.tags.0']);
+        // The error message should reference the human label, not the
+        // internal data path.
+        $errorMessage = (string) collect($response->json('errors'))->flatten()->first();
+        $this->assertStringContainsString('Tags', $errorMessage);
+    }
+
     public function test_submission_persists_only_known_fields(): void
     {
         Queue::fake();
@@ -277,5 +297,53 @@ class SubmissionApiTest extends TestCase
 
         $submission = FormSubmission::query()->firstOrFail();
         $this->assertSame(['name' => 'Jane'], $submission->submission_data);
+    }
+
+    public function test_submission_sends_email_when_storage_disabled_but_email_enabled(): void
+    {
+        Queue::fake();
+
+        $form = Form::factory()->create([
+            'store_submissions' => false,
+            'send_email' => true,
+            'recipient_emails' => ['admin@example.com', 'team@example.com'],
+        ]);
+        $form->fields()->create([
+            'name' => 'name', 'label' => 'Name', 'type' => 'text', 'required' => true, 'position' => 0,
+        ]);
+
+        $response = $this->postJson("/api/forms/{$form->slug}", [
+            'data' => ['name' => 'Jane'],
+        ], ['X-Form-Key' => $form->api_key]);
+
+        $response->assertCreated();
+        // The submission row is created to back the email jobs even
+        // though the form opted out of long-term storage. Otherwise the
+        // email would silently disappear because the email_jobs table
+        // has a FK to form_submissions.
+        $this->assertSame(1, FormSubmission::query()->count());
+        $this->assertSame(2, EmailJob::query()->count());
+        Queue::assertPushed(ProcessFormSubmissionEmail::class, 2);
+    }
+
+    public function test_submission_resolves_subject_template_in_email_jobs(): void
+    {
+        Queue::fake();
+
+        $form = Form::factory()->create([
+            'subject_template' => 'New :form_name submission for :form_slug',
+            'send_email' => true,
+            'recipient_emails' => ['admin@example.com'],
+        ]);
+        $form->fields()->create([
+            'name' => 'name', 'label' => 'Name', 'type' => 'text', 'required' => true, 'position' => 0,
+        ]);
+
+        $this->postJson("/api/forms/{$form->slug}", [
+            'data' => ['name' => 'Jane'],
+        ], ['X-Form-Key' => $form->api_key])->assertCreated();
+
+        $job = EmailJob::query()->firstOrFail();
+        $this->assertSame('New '.$form->name.' submission for '.$form->slug, $job->subject);
     }
 }

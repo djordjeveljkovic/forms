@@ -74,4 +74,24 @@ class ProcessFormSubmissionEmailTest extends TestCase
         $emailJob->refresh();
         $this->assertSame(EmailJobStatus::Sent->value, $emailJob->status);
     }
+
+    public function test_mail_content_renders_with_markdown_components(): void
+    {
+        $form = Form::factory()->create(['name' => 'Contact form']);
+        $submission = FormSubmission::factory()->for($form)->create([
+            'submission_data' => ['name' => 'Jane', 'email' => 'jane@example.com'],
+        ]);
+
+        $mail = new FormSubmissionMail($form, $submission);
+
+        // The HTML body should be the rendered markdown output. If the
+        // Mailable was using `view:` instead of `markdown:` the call
+        // would throw "No hint path defined for [mail]." because the
+        // <x-mail::layout> component only resolves under the markdown
+        // renderer.
+        $rendered = $mail->render();
+        $this->assertStringContainsString('New submission for Contact form', $rendered);
+        $this->assertStringContainsString('Jane', $rendered);
+        $this->assertStringContainsString('jane@example.com', $rendered);
+    }
 }
