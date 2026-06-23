@@ -38,9 +38,11 @@ fi
 # -- Database bootstrap (only on first run) -------------------------------
 need_migrate=0
 if [ "${DB_CONNECTION:-mysql}" != "sqlite" ]; then
-    # Wait for MySQL to accept connections (up to 60s).
+    # Wait for MySQL to accept connections (up to 180s — mysql:8.4 first
+    # boot has to run initdb on the persisted volume, which can easily
+    # blow past 60s on slow disks).
     echo "Waiting for database ${DB_HOST:-mysql}:${DB_PORT:-3306}…"
-    for i in $(seq 1 60); do
+    for i in $(seq 1 180); do
         if php -r "try { new PDO('mysql:host=${DB_HOST:-mysql};port=${DB_PORT:-3306}', '${DB_USERNAME:-forms}', '${DB_PASSWORD:-forms}'); exit(0); } catch (Throwable \$e) { exit(1); }" 2>/dev/null; then
             echo "  ✓ database is up"
             break
