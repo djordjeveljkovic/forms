@@ -45,6 +45,18 @@ class FormEdit extends Component
 
     public string $successMessage = '';
 
+    public string $successRedirectUrl = '';
+
+    public int $minSubmissionSeconds = 3;
+
+    public string $honeypotField = 'website';
+
+    public string $captchaProvider = 'none';
+
+    public string $captchaSiteKey = '';
+
+    public string $captchaSecretKey = '';
+
     public string $submitterReplyToField = '';
 
     public bool $autoDiscoverFields = true;
@@ -71,6 +83,12 @@ class FormEdit extends Component
         $this->storeSubmissions = (bool) $form->store_submissions;
         $this->sendEmail = (bool) $form->send_email;
         $this->successMessage = $form->success_message;
+        $this->successRedirectUrl = (string) $form->success_redirect_url;
+        $this->minSubmissionSeconds = (int) $form->min_submission_seconds;
+        $this->honeypotField = (string) $form->honeypot_field;
+        $this->captchaProvider = (string) $form->captcha_provider;
+        $this->captchaSiteKey = (string) $form->captcha_site_key;
+        $this->captchaSecretKey = (string) $form->captcha_secret_key;
         $this->submitterReplyToField = (string) $form->submitter_reply_to_field;
         $this->autoDiscoverFields = (bool) $form->auto_discover_fields;
         $this->apiKey = $form->api_key;
@@ -122,6 +140,12 @@ class FormEdit extends Component
                 'send_email' => $data['sendEmail'],
                 'submitter_reply_to_field' => $data['submitterReplyToField'] ?: null,
                 'success_message' => $data['successMessage'],
+                'success_redirect_url' => $data['successRedirectUrl'] ?: null,
+                'min_submission_seconds' => $data['minSubmissionSeconds'],
+                'honeypot_field' => $data['honeypotField'] ?: 'website',
+                'captcha_provider' => $data['captchaProvider'],
+                'captcha_site_key' => $data['captchaSiteKey'] ?: null,
+                'captcha_secret_key' => $this->resolveCaptchaSecretKey($data['captchaSecretKey']),
                 'auto_discover_fields' => $data['autoDiscoverFields'],
             ]);
 
@@ -409,9 +433,31 @@ class FormEdit extends Component
             'storeSubmissions' => ['boolean'],
             'sendEmail' => ['boolean'],
             'successMessage' => ['required', 'string', 'max:2000'],
+            'successRedirectUrl' => ['nullable', 'string', 'max:2048', 'url'],
+            'minSubmissionSeconds' => ['integer', 'min:0', 'max:600'],
+            'honeypotField' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z][A-Za-z0-9_]*$/'],
+            'captchaProvider' => ['required', Rule::in(['none', 'turnstile'])],
+            'captchaSiteKey' => ['nullable', 'string', 'max:255'],
+            'captchaSecretKey' => ['nullable', 'string', 'max:255'],
             'submitterReplyToField' => ['nullable', 'string', 'max:64', Rule::notIn(['__data', '_token'])],
             'autoDiscoverFields' => ['boolean'],
         ];
+    }
+
+    /**
+     * Keep the existing secret key when the user clears the field,
+     * because an empty input is indistinguishable from "I don't want
+     * to change it" in the UI.
+     */
+    protected function resolveCaptchaSecretKey(string $value): ?string
+    {
+        $trimmed = trim($value);
+
+        if ($trimmed === '') {
+            return $this->form->captcha_secret_key;
+        }
+
+        return $trimmed;
     }
 
     /**

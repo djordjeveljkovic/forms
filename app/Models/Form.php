@@ -31,6 +31,12 @@ use Illuminate\Support\Str;
  * @property bool $success_notify_submitter
  * @property string|null $submitter_reply_to_field
  * @property string $success_message
+ * @property string|null $success_redirect_url
+ * @property int $min_submission_seconds
+ * @property string $honeypot_field
+ * @property string $captcha_provider
+ * @property string|null $captcha_site_key
+ * @property string|null $captcha_secret_key
  * @property bool $is_archived
  * @property Carbon|null $archived_at
  * @property Carbon|null $created_at
@@ -52,6 +58,12 @@ use Illuminate\Support\Str;
     'success_notify_submitter',
     'submitter_reply_to_field',
     'success_message',
+    'success_redirect_url',
+    'min_submission_seconds',
+    'honeypot_field',
+    'captcha_provider',
+    'captcha_site_key',
+    'captcha_secret_key',
     'is_archived',
     'archived_at',
 ])]
@@ -74,6 +86,9 @@ class Form extends Model
             'store_submissions' => 'boolean',
             'send_email' => 'boolean',
             'success_notify_submitter' => 'boolean',
+            'min_submission_seconds' => 'integer',
+            'captcha_provider' => 'string',
+            'captcha_secret_key' => 'encrypted',
             'is_archived' => 'boolean',
             'archived_at' => 'datetime',
         ];
@@ -94,6 +109,9 @@ class Form extends Model
             $form->send_email ??= true;
             $form->is_archived ??= false;
             $form->recipient_emails ??= [];
+            $form->min_submission_seconds ??= 3;
+            $form->honeypot_field ??= 'website';
+            $form->captcha_provider ??= 'none';
         });
     }
 
@@ -188,6 +206,16 @@ class Form extends Model
     public function hasActiveFields(): bool
     {
         return $this->activeFields()->isNotEmpty();
+    }
+
+    /**
+     * Determine whether the form has Cloudflare Turnstile captcha configured.
+     */
+    public function hasTurnstile(): bool
+    {
+        return $this->captcha_provider === 'turnstile'
+            && $this->captcha_site_key
+            && $this->captcha_secret_key;
     }
 
     /**

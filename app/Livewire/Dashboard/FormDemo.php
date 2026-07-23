@@ -113,12 +113,28 @@ class FormDemo extends Component
     {
         $endpoint = url('/api/forms/'.$this->form->slug);
         $action = $endpoint.'?api_key='.$this->form->api_key;
+        $honeypot = $this->honeypotFieldName();
+        $timestamp = time();
+        $redirect = (string) $this->form->success_redirect_url;
+        $turnstile = $this->form->hasTurnstile() ? $this->renderTurnstileWidget() : '';
 
         $rows = [];
         $rows[] = '<form action="'.htmlspecialchars($action, ENT_QUOTES).'" method="POST" class="space-y-4">';
+        $rows[] = '  <input type="hidden" name="_timestamp" value="'.$timestamp.'">';
+        if ($redirect !== '') {
+            $rows[] = '  <input type="hidden" name="_redirect" value="'.htmlspecialchars($redirect, ENT_QUOTES).'">';
+        }
+        $rows[] = '  <!-- honeypot: hidden visually with CSS below -->';
+        $rows[] = '  <div style="position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;" aria-hidden="true">';
+        $rows[] = '    <label>Website <input type="text" name="'.htmlspecialchars($honeypot, ENT_QUOTES).'" value="" tabindex="-1" autocomplete="off"></label>';
+        $rows[] = '  </div>';
 
         foreach ($this->fields() as $field) {
             $rows[] = $this->renderHtmlField($field);
+        }
+
+        if ($turnstile !== '') {
+            $rows[] = $turnstile;
         }
 
         $rows[] = '  <button type="submit" class="...">Submit</button>';
@@ -135,17 +151,43 @@ class FormDemo extends Component
     {
         $endpoint = url('/api/forms/'.$this->form->slug);
         $fieldNames = $this->fields()->pluck('name')->all();
+        $honeypot = $this->honeypotFieldName();
+        $redirect = (string) $this->form->success_redirect_url;
+        $useTurnstile = $this->form->hasTurnstile();
+        $turnstileSiteKey = (string) $this->form->captcha_site_key;
+        $turnstileInit = $useTurnstile ? <<<JS
+
+// Load Turnstile once and render the widget into the form.
+const tsScript = document.createElement('script');
+tsScript.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoad';
+tsScript.async = true;
+tsScript.defer = true;
+document.head.appendChild(tsScript);
+
+window.onTurnstileLoad = () => {
+  window.turnstile.render('#turnstile-widget', { sitekey: '{$turnstileSiteKey}' });
+};
+JS : '';
 
         $body = "{\n";
         $body .= "  data: {\n";
         foreach ($fieldNames as $name) {
             $body .= '    '.$name.': formData.get(\''.$name.'\'),'."\n";
         }
-        $body .= "  }\n";
+        if ($useTurnstile) {
+            $body .= "    'cf-turnstile-response': formData.get('cf-turnstile-response'),\n";
+        }
+        $body .= "  },\n";
+        $body .= "  _timestamp: formData.get('_timestamp'),\n";
+        if ($redirect !== '') {
+            $body .= "  _redirect: formData.get('_redirect'),\n";
+        }
+        $body .= "  '{$honeypot}': formData.get('{$honeypot}'),\n";
         $body .= '}';
 
         $template = <<<JS
 const form = document.querySelector('#my-form');
+{$turnstileInit}
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   const formData = new FormData(form);
@@ -170,6 +212,27 @@ form.addEventListener('submit', async (event) => {
 JS;
 
         return $template;
+    }
+
+    /**
+     * Resolve the honeypot field name (same default as the model).
+     */
+    protected function honeypotFieldName(): string
+    {
+        return $this->form->honeypot_field ?: 'website';
+    }
+
+    /**
+     * Render the Turnstile widget snippet for embedding in the HTML form.
+     */
+    protected function renderTurnstileWidget(): string
+    {
+        $siteKey = htmlspecialchars((string) $this->form->captcha_site_key, ENT_QUOTES);
+
+        return <<<HTML
+  <div class="cf-turnstile" data-sitekey="{$siteKey}"></div>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+HTML;
     }
 
     /**

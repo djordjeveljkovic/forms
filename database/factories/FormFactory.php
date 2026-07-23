@@ -37,6 +37,12 @@ class FormFactory extends Factory
             'success_notify_submitter' => false,
             'submitter_reply_to_field' => 'email',
             'success_message' => 'Thank you for your submission.',
+            'success_redirect_url' => null,
+            'min_submission_seconds' => 0,
+            'honeypot_field' => 'website',
+            'captcha_provider' => 'none',
+            'captcha_site_key' => null,
+            'captcha_secret_key' => null,
             'auto_discover_fields' => true,
             'is_archived' => false,
             'archived_at' => null,
@@ -51,6 +57,28 @@ class FormFactory extends Factory
         return $this->state(fn (): array => [
             'is_archived' => true,
             'archived_at' => now(),
+        ]);
+    }
+
+    /**
+     * Configure the form with Cloudflare Turnstile captcha keys.
+     */
+    public function withTurnstile(?string $siteKey = null, ?string $secretKey = null): static
+    {
+        return $this->state(fn (): array => [
+            'captcha_provider' => 'turnstile',
+            'captcha_site_key' => $siteKey ?? '0x4AAAAAAA'.Str::random(20),
+            'captcha_secret_key' => $secretKey ?? '0x4AAAAAAA'.Str::random(20).'-secret',
+        ]);
+    }
+
+    /**
+     * Disable the minimum submission time check.
+     */
+    public function noMinSubmissionTime(): static
+    {
+        return $this->state(fn (): array => [
+            'min_submission_seconds' => 0,
         ]);
     }
 

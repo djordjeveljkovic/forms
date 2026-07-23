@@ -256,6 +256,67 @@
 
         <flux:card>
             <div class="flex flex-col gap-4">
+                <flux:heading size="lg" level="2">{{ __('Spam protection & redirect') }}</flux:heading>
+
+                <flux:text class="text-sm text-zinc-500">
+                    {{ __('Spam protection is always on. Add a CAPTCHA when the form is on a high-traffic page.') }}
+                </flux:text>
+
+                <flux:input
+                    wire:model="successRedirectUrl"
+                    type="url"
+                    :label="__('Success redirect URL (optional)')"
+                    placeholder="https://example.com/thank-you"
+                />
+                <flux:text class="-mt-3 text-xs text-zinc-500">
+                    {{ __('Where to send the user after a successful submission. Leave blank to return JSON. The form can override this with a hidden _redirect field.') }}
+                </flux:text>
+
+                <div class="grid gap-3 sm:grid-cols-2">
+                    <flux:input
+                        wire:model="minSubmissionSeconds"
+                        type="number"
+                        min="0"
+                        max="600"
+                        :label="__('Minimum submission time (seconds)')"
+                        description="Reject submissions faster than this. 0 disables."
+                    />
+                    <flux:input
+                        wire:model="honeypotField"
+                        :label="__('Honeypot field name')"
+                        description="Hidden field that bots fill in. Keep the default unless you have a reason to change it."
+                    />
+                </div>
+
+                <flux:select wire:model="captchaProvider" :label="__('CAPTCHA provider')">
+                    <option value="none">{{ __('None') }}</option>
+                    <option value="turnstile">{{ __('Cloudflare Turnstile') }}</option>
+                </flux:select>
+
+                @if ($captchaProvider === 'turnstile')
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <flux:input
+                            wire:model="captchaSiteKey"
+                            :label="__('Turnstile site key')"
+                            placeholder="0x4AAAAAAA..."
+                        />
+                        <flux:input
+                            wire:model="captchaSecretKey"
+                            type="password"
+                            :label="__('Turnstile secret key')"
+                            placeholder="{{ $form->captcha_secret_key ? __('•••••••• (leave blank to keep)') : '0x4AAAAAAA...' }}"
+                            view
+                        />
+                    </div>
+                    <flux:text class="-mt-3 text-xs text-zinc-500">
+                        {{ __('Get keys from ') }}<flux:link href="https://www.cloudflare.com/products/turnstile/" target="_blank">cloudflare.com/products/turnstile</flux:link>.
+                    </flux:text>
+                @endif
+            </div>
+        </flux:card>
+
+        <flux:card>
+            <div class="flex flex-col gap-4">
                 <flux:heading size="lg" level="2">{{ __('Behaviour') }}</flux:heading>
 
                 <flux:switch wire:model="storeSubmissions" :label="__('Store submissions in database')" />

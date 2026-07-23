@@ -34,15 +34,50 @@ class FormSubmissionService
      *     submission: array<string, mixed>|null,
      *     errors: array<string, array<int, string>>,
      *     fields: array<int, array<string, mixed>>,
+     *     redirect_url: string|null,
      * }
      */
-    public function submit(Form $form, array $data, Request $request): array
+    public function submit(Form $form, array $data, Request $request, ?string $redirectUrl = null): array
     {
+        // Strip control fields (anything starting with `_` plus the
+        // Turnstile token) so they never reach the validator or get
+        // persisted into the submission JSON. The honeypot field is
+        // stripped later so the spam-protection check has a chance to
+        // read it from the request.
+        $data = $this->stripControlFields($data);
+
         // Auto-discover fields on a field-less form, when enabled.
-        if (! $form->hasActiveFields() && $form->auto_discover_fields) {
+        // Auto-discovery runs *before* spam protection so the form
+        // owner can see the first submission as a configured form
+        // even when the bot-protection rules block it.
+        if (! $form->hasActiveFields() && $form->auto_discover_fields && $data !== []) {
             app(FormFieldDiscoverer::class)->discover($form, $data);
             $form->refresh();
         }
+
+        // Run spam protection before field validation so spam never
+        // generates per-field validation errors that would leak form
+        // structure to bots.
+        $spam = app(FormSpamProtectionService::class)->verify($form, $request, $data);
+        if (! $spam->passed) {
+            return [
+                'ok' => false,
+                'status' => $spam->status,
+                'message' => 'Submission could not be processed.',
+                'submission' => null,
+                'errors' => [],
+                'fields' => $form->activeFields()
+                    ->map(fn ($field) => $field->toSchema())
+                    ->values()
+                    ->all(),
+                'redirect_url' => $redirectUrl,
+            ];
+        }
+
+        // Strip the honeypot field now that the spam check has read
+        // it — it would otherwise trip the validator's unknown-field
+        // rejection and pollute the submission JSON.
+        $data = $this->stripHoneypotField($form, $data);
 
         $validator = FormSubmissionValidator::make($form, $data);
 
@@ -59,6 +94,7 @@ class FormSubmissionService
                     ->map(fn ($field) => $field->toSchema())
                     ->values()
                     ->all(),
+                'redirect_url' => $redirectUrl,
             ];
         }
 
@@ -70,6 +106,7 @@ class FormSubmissionService
                 'submission' => null,
                 'errors' => [],
                 'fields' => [],
+                'redirect_url' => $redirectUrl,
             ];
         }
 
@@ -81,6 +118,7 @@ class FormSubmissionService
                 'submission' => null,
                 'errors' => [],
                 'fields' => [],
+                'redirect_url' => $redirectUrl,
             ];
         }
 
@@ -146,6 +184,7 @@ class FormSubmissionService
                 'submission' => null,
                 'errors' => [],
                 'fields' => [],
+                'redirect_url' => $redirectUrl,
             ];
         }
 
@@ -162,7 +201,61 @@ class FormSubmissionService
                 : null,
             'errors' => [],
             'fields' => [],
+            'redirect_url' => $this->buildRedirectUrl($redirectUrl, $submission),
         ];
+    }
+
+    /**
+     * Strip internal control fields (leading underscore + the Turnstile
+     * response token) from a payload so they never reach the validator
+     * or get persisted into the submission JSON.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    protected function stripControlFields(array $data): array
+    {
+        return collect($data)
+            ->reject(fn (mixed $value, string $key) => str_starts_with($key, '_') || $key === 'cf-turnstile-response')
+            ->all();
+    }
+
+    /**
+     * Strip the form's honeypot field from the payload. Called after
+     * the spam check has read the value, so it never reaches the
+     * validator.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    protected function stripHoneypotField(Form $form, array $data): array
+    {
+        $honeypot = (string) ($form->honeypot_field ?: 'website');
+
+        return collect($data)
+            ->reject(fn (mixed $value, string $key) => $key === $honeypot)
+            ->all();
+    }
+
+    /**
+     * Build the final redirect URL by appending the submission id and
+     * status as query parameters so the landing page can show the right
+     * state. Only used when the caller actually wants to redirect.
+     */
+    protected function buildRedirectUrl(?string $base, ?FormSubmission $submission): ?string
+    {
+        if ($base === null || $base === '') {
+            return null;
+        }
+
+        $params = [];
+        if ($submission) {
+            $params['submission_id'] = $submission->id;
+        }
+
+        $separator = str_contains($base, '?') ? '&' : '?';
+
+        return $params === [] ? $base : $base.$separator.http_build_query($params);
     }
 
     /**

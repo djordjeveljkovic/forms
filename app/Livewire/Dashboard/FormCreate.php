@@ -40,6 +40,18 @@ class FormCreate extends Component
 
     public string $successMessage = 'Thank you for your submission.';
 
+    public string $successRedirectUrl = '';
+
+    public int $minSubmissionSeconds = 3;
+
+    public string $honeypotField = 'website';
+
+    public string $captchaProvider = 'none';
+
+    public string $captchaSiteKey = '';
+
+    public string $captchaSecretKey = '';
+
     public string $submitterReplyToField = 'email';
 
     public bool $autoDiscoverFields = true;
@@ -93,6 +105,12 @@ class FormCreate extends Component
                     'send_email' => $data['sendEmail'],
                     'submitter_reply_to_field' => $data['submitterReplyToField'] ?: null,
                     'success_message' => $data['successMessage'],
+                    'success_redirect_url' => $data['successRedirectUrl'] ?: null,
+                    'min_submission_seconds' => $data['minSubmissionSeconds'],
+                    'honeypot_field' => $data['honeypotField'] ?: 'website',
+                    'captcha_provider' => $data['captchaProvider'],
+                    'captcha_site_key' => $data['captchaSiteKey'] ?: null,
+                    'captcha_secret_key' => $data['captchaSecretKey'] ?: null,
                     'auto_discover_fields' => $data['autoDiscoverFields'],
                 ]);
 
@@ -320,6 +338,12 @@ class FormCreate extends Component
             'storeSubmissions' => ['boolean'],
             'sendEmail' => ['boolean'],
             'successMessage' => ['required', 'string', 'max:2000'],
+            'successRedirectUrl' => ['nullable', 'string', 'max:2048', 'url'],
+            'minSubmissionSeconds' => ['integer', 'min:0', 'max:600'],
+            'honeypotField' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z][A-Za-z0-9_]*$/'],
+            'captchaProvider' => ['required', Rule::in(['none', 'turnstile'])],
+            'captchaSiteKey' => ['nullable', 'string', 'max:255'],
+            'captchaSecretKey' => ['nullable', 'string', 'max:255'],
             'submitterReplyToField' => ['nullable', 'string', 'max:64', Rule::notIn(['__data', '_token'])],
             'autoDiscoverFields' => ['boolean'],
         ];

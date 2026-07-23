@@ -135,6 +135,19 @@
                     @endforelse
 
                     @if ($this->fields->isNotEmpty())
+                        @if ($form->hasTurnstile())
+                            <div class="flex flex-col gap-1">
+                                <flux:text class="text-xs text-zinc-500">
+                                    {{ __('This form has Cloudflare Turnstile enabled. Use the embed snippet for a real widget; the test form above will accept any token locally.') }}
+                                </flux:text>
+                                <flux:input
+                                    wire:model="values.cf-turnstile-response"
+                                    :label="__('Turnstile token (test)')"
+                                    placeholder="XXXX.DUMMY.TOKEN.XXXX"
+                                />
+                            </div>
+                        @endif
+
                         <div class="flex items-center justify-between gap-2 pt-2">
                             <flux:button type="button" variant="ghost" wire:click="resetForm">
                                 {{ __('Reset') }}

@@ -99,6 +99,13 @@ class FormExporter
             'send_email' => (bool) ($formInput['send_email'] ?? true),
             'submitter_reply_to_field' => $formInput['submitter_reply_to_field'] ?? null,
             'success_message' => $formInput['success_message'] ?? 'Thank you for your submission.',
+            'success_redirect_url' => $this->nullable($formInput['success_redirect_url'] ?? null),
+            'min_submission_seconds' => (int) ($formInput['min_submission_seconds'] ?? 3),
+            'honeypot_field' => (string) ($formInput['honeypot_field'] ?? 'website'),
+            'captcha_provider' => (string) ($formInput['captcha_provider'] ?? 'none'),
+            // Captcha keys are intentionally NOT exported. They are
+            // per-account secrets that should be re-entered on the
+            // destination site.
             'auto_discover_fields' => (bool) ($formInput['auto_discover_fields'] ?? true),
         ]);
 
@@ -166,6 +173,11 @@ class FormExporter
             'send_email' => (bool) $form->send_email,
             'submitter_reply_to_field' => $form->submitter_reply_to_field,
             'success_message' => $form->success_message,
+            'success_redirect_url' => $form->success_redirect_url,
+            'min_submission_seconds' => (int) $form->min_submission_seconds,
+            'honeypot_field' => $form->honeypot_field,
+            // Captcha keys are intentionally NOT exported.
+            'captcha_provider' => $form->captcha_provider,
             'auto_discover_fields' => (bool) $form->auto_discover_fields,
         ];
     }
