@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Models\Form;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 
@@ -53,7 +54,7 @@ class FormFactory extends Factory
     /**
      * Assign the form to a specific user.
      */
-    public function ownedBy(\App\Models\User $user): static
+    public function ownedBy(User $user): static
     {
         return $this->state(fn (): array => [
             'user_id' => $user->id,

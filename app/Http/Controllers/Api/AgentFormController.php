@@ -44,6 +44,7 @@ class AgentFormController extends Controller
             'from_name' => ['nullable', 'string', 'max:120'],
             'success_redirect_url' => ['nullable', 'url', 'max:2000'],
             'success_message' => ['nullable', 'string', 'max:500'],
+            'min_submission_seconds' => ['nullable', 'integer', 'min:0', 'max:3600'],
         ]);
 
         /** @var User $user */
@@ -84,6 +85,12 @@ class AgentFormController extends Controller
                 // Override the legacy /api/forms/{slug} default with
                 // the agent-facing submission URL.
                 'endpoint' => '/api/submit/'.$slug,
+                // The embed snippet is plain HTML — there's no
+                // JavaScript to refresh a `_timestamp` field per page
+                // load. Default to 0 (no timing check) so the snippet
+                // is immediately usable. The agent can opt back into
+                // timing protection by passing min_submission_seconds.
+                'min_submission_seconds' => $data['min_submission_seconds'] ?? 0,
             ]);
 
             foreach ($parsed as $i => $row) {

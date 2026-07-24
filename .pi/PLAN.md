@@ -88,6 +88,11 @@ State of the codebase (2026-07-24): substantial portions of the original test_fo
 > Roughly half of that draft is already implemented in this repo; this
 > document focuses on the remaining work.
 
+> **Status:** ✅ **Shipped in `bd6bff5 latest changes`.** All four phases
+> (A middleware, B controllers/routes, C Livewire UI, D docs) are merged
+> and green. **Pint** clean, **PHPStan** 0 errors, **PHPUnit** 255 tests
+> passing. This revision is a status update, not a work-in-progress doc.
+
 ## Goal & scope
 
 A user signs in to **forms-app** (Laravel 13 + Livewire + Fortify, this
@@ -485,3 +490,118 @@ Implementation order:
 2. Phase B (controllers, routes, traits, success view, tests) — ~6 hrs.
 3. Phase C (Livewire key-management page + sidebar + test) — ~3 hrs.
 4. Phase D (docs + manual smoke test) — ~1 hr.
+
+---
+
+## Delivered (commit `bd6bff5 latest changes`)
+
+### File inventory (planned vs actual)
+
+| Planned path | Status | Notes |
+|---|---|---|
+| `app/Http/Controllers/Api/AgentFormController.php` | ✅ 189 lines | |
+| `app/Http/Controllers/Api/SubmissionV2Controller.php` | ✅ 88 lines | |
+| `app/Http/Controllers/Api/AgentDocsController.php` | ✅ 195 lines | |
+| `app/Http/Controllers/Api/Concerns/HandlesSubmissionResponses.php` | ✅ 155 lines | new trait |
+| `app/Http/Middleware/AuthenticateAgent.php` | ✅ 101 lines | |
+| `app/Livewire/Dashboard/AgentKey.php` | ✅ 198 lines | under `Dashboard`, not `Settings` (per decision A) |
+| `resources/views/agent/form-created.blade.php` | ✅ 110 lines | extends `auth.simple` layout |
+| `resources/views/livewire/dashboard/agent-key.blade.php` | ✅ 170 lines | |
+| `tests/Feature/Api/AuthenticateAgentTest.php` | ✅ 151 lines, 9 tests | |
+| `tests/Feature/Api/AgentFormStoreTest.php` | ✅ 352 lines, 15 tests | |
+| `tests/Feature/Api/SubmitV2Test.php` | ✅ 246 lines, 9 tests | |
+| `tests/Feature/Livewire/Dashboard/AgentKeyTest.php` | ✅ 167 lines, 10 tests | |
+| `tests/Unit/Services/Agent/FormHtmlParserTest.php` | ✅ 185 lines, 14 tests | |
+| `tests/Unit/Services/Agent/EmbedSnippetGeneratorTest.php` | ✅ 135 lines, 7 tests | |
+| `tests/Feature/Api/AgentDocsTest.php` | ✅ 4 tests | not in original plan; added when building docs |
+| `tests/Feature/AgentWorkflowSmokeTest.php` | ✅ 1 test, end-to-end | not in original plan; added in Phase D |
+| `docs/agent-api.md` | ✅ 153 lines | |
+| `database/migrations/2026_07_24_102346_drop_endpoint_unique_from_forms_table.php` | ✅ | not in original plan; needed to allow same-slug forms across users |
+
+### Modified files
+
+| Planned path | Status |
+|---|---|
+| `app/Http/Controllers/Api/SubmissionController.php` | ✅ slimmed to 91 lines via shared trait |
+| `bootstrap/app.php` | ✅ added `agent.key` alias |
+| `routes/api.php` | ✅ added 4 routes |
+| `routes/web.php` | ✅ added `/dashboard/agent-key` |
+| `resources/views/layouts/app/sidebar.blade.php` | ✅ added `Forms agent API` item |
+
+### Deltas from the original plan
+
+1. **Livewire component lives at `Dashboard\AgentKey`, not `Settings\AgentKey`**
+   — the user picked "Forms sidebar group" (decision A) in the clarify
+   phase, which pushed it out of the `Settings` namespace.
+2. **New migration to drop `forms.endpoint` global unique index** — without
+   this, two users couldn't each own a form named `contact_form` because
+   the `endpoint` string defaulted to `/api/forms/contact` and the
+   column was globally unique. The migration is best-effort reversible.
+3. **Bug fix: `Form::$fillable` was missing `auto_discover_fields`** — a
+   pre-existing issue that surfaced once `AgentFormController` tried to
+   set the value via `Model::create()`. The factory worked around it
+   because factories bypass the fillable filter.
+4. **`min_submission_seconds` defaults to `0` for agent-created forms**
+   — the embed snippet is plain HTML with no JS, so a `_timestamp` field
+   rendered at snippet-creation time would always fail the timing check
+   on real visitor submissions. Agents can opt back in via the new
+   `min_submission_seconds` request parameter.
+5. **`FormHtmlParser` deprecation fix** — `mb_convert_encoding(..., 'HTML-ENTITIES')`
+   triggers a PHP 8.5 deprecation. Replaced with `htmlspecialchars_decode`.
+6. **Added `tests/Feature/Api/AgentDocsTest.php`** — the original plan
+   didn't explicitly call out docs tests; added them when Phase B.5
+   landed.
+7. **Added `tests/Feature/AgentWorkflowSmokeTest.php`** — an end-to-end
+   test that exercises the entire pipeline (sign up → generate key →
+   agent POST → visitor submits → submission row created → email job
+   queued). Caught the `min_submission_seconds` bug during this work.
+
+### Final quality gate
+
+```
+$ composer run test
+> pint --parallel --test       passed
+> phpstan analyse             passed, errors: 0
+> @php artisan test           passed, tests: 255, assertions: 690
+```
+
+### Acceptance criteria — verified
+
+1. ✅ User signs up, signs in, generates `forms_sk_…` from
+   `/dashboard/agent-key`. Plaintext shown once in a modal with copy
+   button; subsequent visits show last-4 + created-at + last-used-at.
+2. ✅ External agent POSTs `/api/agent/forms` with Bearer + multipart
+   `html` + `form_name` and receives
+   `{form_url, slug, name, fields, embed_html}` (no per-form api_key).
+3. ✅ `embed_html` pasted into a static page + submitted by a visitor
+   creates a `form_submissions` row and queues an email job
+   (`AgentWorkflowSmokeTest::test_complete_agent_workflow_end_to_end`).
+4. ✅ Two different users can each create a `contact_form`; same user
+   cannot (409).
+5. ✅ `GET /api/llms.txt` returns Markdown; `GET /api/agent/docs`
+   returns the same as JSON.
+6. ✅ `composer run test` is green.
+7. ✅ Legacy `POST /api/forms/{slug}?api_key=…` continues to work —
+   all 5 pre-existing `tests/Feature/Api/Submission*Test.php` tests
+   still pass.
+8. ✅ Browser flow to `POST /api/agent/forms` (`Accept: text/html`)
+   returns the inline Flux page with copy-to-clipboard buttons for the
+   URL and embed snippet; the user's plaintext key is replaced with
+   `__YOUR_FORMS_KEY__` placeholder in the HTML response (the agent
+   received the real key in their POST response payload).
+
+### Uncommitted working-tree deltas
+
+Two files were modified after `bd6bff5` and one extra test file plus
+`docs/agent-api.md` were added — all part of Phase D cleanup:
+
+```
+ M app/Http/Controllers/Api/AgentFormController.php   (+min_submission_seconds validation + default)
+ M database/factories/FormFactory.php                 (pint: fully_qualified_strict_types, ordered_imports)
+?? docs/agent-api.md
+?? tests/Feature/AgentWorkflowSmokeTest.php
+```
+
+These were authored but never committed because the user issued `/reload`
+repeatedly before the next phase kicked off. Run `git status` and commit
+when ready.
