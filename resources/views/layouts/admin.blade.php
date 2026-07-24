@@ -8,6 +8,13 @@
             <x-impersonation-banner :impersonator-id="session('impersonator_id')" />
         @endif
 
+        <flux:header class="border-b border-zinc-200 bg-amber-100 text-amber-900 dark:border-amber-800 dark:bg-amber-900 dark:text-amber-100">
+            <div class="flex items-center gap-2 px-4 py-1 text-sm">
+                <flux:icon.shield-check class="size-4" />
+                <span class="font-medium">{{ __('Admin mode') }}</span>
+            </div>
+        </flux:header>
+
         <flux:sidebar sticky collapsible="mobile" class="border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
             <flux:sidebar.header>
                 <x-app-logo :sidebar="true" href="{{ route('admin.dashboard') }}" wire:navigate />
