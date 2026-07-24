@@ -57,6 +57,7 @@ class FormHtmlParser
         $this->seenNames = [];
         $dom = $this->loadDocument($html);
 
+        /** @var array<int, array{name: string, label: string, type: string, required: bool, placeholder: ?string, help_text: ?string, options: ?array<int, string>, position: int, is_active: bool}> $fields */
         $fields = [];
         $position = 0;
 
@@ -86,10 +87,6 @@ class FormHtmlParser
         });
 
         foreach ($ordered as $node) {
-            if (! $node instanceof DOMElement) {
-                continue;
-            }
-
             if ($this->isControlField($node)) {
                 continue;
             }
@@ -126,10 +123,11 @@ class FormHtmlParser
         $previous = libxml_use_internal_errors(true);
 
         // Ensure the snippet parses as UTF-8 even without an explicit
-        // <meta charset>. mb_convert_encoding is forgiving about bad
-        // sequences so emojis and accented characters survive.
+        // <meta charset>. htmlspecialchars with the ENT_HTML5 flag
+        // handles named entities (em-dashes, curly quotes, etc.) so
+        // DOMDocument round-trips them safely.
         $prepared = '<?xml encoding="UTF-8"?>'
-            .mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8');
+            .htmlspecialchars_decode($html, ENT_QUOTES | ENT_HTML5);
 
         $dom->loadHTML(
             $prepared,
@@ -238,7 +236,7 @@ class FormHtmlParser
     /**
      * Build the field array for a single DOM node.
      *
-     * @return array<string, mixed>|null
+     * @return array{name: string, label: string, type: string, required: bool, placeholder: ?string, help_text: ?string, options: ?array<int, string>, position: int, is_active: bool}|null
      */
     protected function buildFieldFromNode(DOMElement $node, DOMDocument $dom, int $position): ?array
     {
@@ -284,7 +282,7 @@ class FormHtmlParser
             'label' => $label,
             'type' => $type->value,
             'required' => $required,
-            'placeholder' => $placeholder !== '' ? $placeholder : null,
+            'placeholder' => $placeholder,
             'help_text' => $helpText,
             'options' => $options,
             'position' => $position,

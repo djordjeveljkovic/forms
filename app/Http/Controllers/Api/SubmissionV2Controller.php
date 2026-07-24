@@ -5,43 +5,42 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Api\Concerns\HandlesSubmissionResponses;
 use App\Http\Controllers\Controller;
 use App\Models\Form;
+use App\Models\User;
 use App\Services\FormSubmissionService;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
-class SubmissionController extends Controller
+/**
+ * User-key-authenticated submission endpoint for forms created via the
+ * `/api/agent/forms` workflow.
+ *
+ * The `agent.key` middleware resolves the calling user from the forms
+ * key they carried (Authorization header, query string, or `_user_api`
+ * body field). This controller then verifies that the user owns the
+ * target form and delegates the actual submission pipeline to
+ * `FormSubmissionService` — the same pipeline the legacy
+ * `SubmissionController` uses, so spam protection, validation, and
+ * email delivery behave identically.
+ */
+class SubmissionV2Controller extends Controller
 {
     use HandlesSubmissionResponses;
 
     /**
-     * Return the form's metadata and configured field schema.
-     */
-    public function show(Request $request, Form $form): JsonResponse
-    {
-        return response()->json([
-            'form' => [
-                'name' => $form->name,
-                'slug' => $form->slug,
-                'description' => $form->description,
-                'success_message' => $form->success_message,
-                'subject_template' => $form->subject_template,
-                'submitter_reply_to_field' => $form->submitter_reply_to_field,
-                'auto_discover_fields' => (bool) $form->auto_discover_fields,
-            ],
-            'fields' => $form->activeFields()
-                ->map(fn ($field) => $field->toSchema())
-                ->values()
-                ->all(),
-        ]);
-    }
-
-    /**
-     * Store a new submission for the given form and dispatch email jobs.
+     * Process a new submission against the supplied form.
      */
     public function store(Request $request, Form $form): Response
     {
+        /** @var User $user */
+        $user = $request->user();
+
+        if ($form->user_id !== $user->id) {
+            return response()->json([
+                'message' => 'Form key does not match form owner.',
+            ], 403);
+        }
+
         if ($this->originIsForbidden($request, $form)) {
             return response()->json([
                 'message' => 'Origin not allowed for this form.',
@@ -65,10 +64,6 @@ class SubmissionController extends Controller
             ], 500);
         }
 
-        // Browser-driven submissions (plain HTML form posts) get a
-        // 302 redirect to the form owner's site so the user lands on
-        // their thank-you page. Programmatic clients (fetch with
-        // Accept: application/json) get the structured JSON response.
         if ($this->wantsHtmlResponse($request) && $result['ok'] && $result['redirect_url'] !== null) {
             return redirect()->to($result['redirect_url']);
         }
@@ -77,9 +72,7 @@ class SubmissionController extends Controller
             return $this->redirectWithError($redirectUrl, $result['status'], $result['errors']);
         }
 
-        $body = [
-            'message' => $result['message'],
-        ];
+        $body = ['message' => $result['message']];
 
         if ($result['ok']) {
             $body['submission'] = $result['submission'];

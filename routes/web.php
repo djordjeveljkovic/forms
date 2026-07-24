@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Dashboard\AgentKey;
 use App\Livewire\Dashboard\Analytics;
 use App\Livewire\Dashboard\EmailJobs;
 use App\Livewire\Dashboard\EmailJobShow;
@@ -26,6 +27,8 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
         Route::livewire('/forms/import', FormImport::class)->name('forms.import');
         Route::livewire('/forms/{form}/edit', FormEdit::class)->name('forms.edit');
         Route::livewire('/forms/{form}/demo', FormDemo::class)->name('forms.demo');
+
+        Route::livewire('/agent-key', AgentKey::class)->name('agent-key');
 
         Route::livewire('/submissions', SubmissionsIndex::class)->name('submissions.index');
         Route::livewire('/submissions/{submission}', SubmissionShow::class)->name('submissions.show');

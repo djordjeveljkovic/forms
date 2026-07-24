@@ -24,6 +24,9 @@
                     <flux:sidebar.item icon="envelope" :href="route('dashboard.email-jobs.index')" :current="request()->routeIs('dashboard.email-jobs.*')" wire:navigate>
                         {{ __('Email jobs') }}
                     </flux:sidebar.item>
+                    <flux:sidebar.item icon="key" :href="route('dashboard.agent-key')" :current="request()->routeIs('dashboard.agent-key')" wire:navigate>
+                        {{ __('Forms agent API') }}
+                    </flux:sidebar.item>
                 </flux:sidebar.group>
 
                 <flux:sidebar.group :heading="__('Account')" class="grid">

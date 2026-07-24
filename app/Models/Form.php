@@ -67,6 +67,7 @@ use Illuminate\Support\Str;
     'captcha_provider',
     'captcha_site_key',
     'captcha_secret_key',
+    'auto_discover_fields',
     'is_archived',
     'archived_at',
 ])]
