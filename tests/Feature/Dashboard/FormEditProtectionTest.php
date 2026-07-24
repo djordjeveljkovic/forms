@@ -19,9 +19,10 @@ class FormEditProtectionTest extends TestCase
 
     public function test_can_save_spam_protection_settings(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
 
         Livewire::test(FormEdit::class, ['form' => $form])
             ->set('successRedirectUrl', 'https://example.com/thank-you')
@@ -39,9 +40,10 @@ class FormEditProtectionTest extends TestCase
 
     public function test_can_save_turnstile_settings(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
 
         Livewire::test(FormEdit::class, ['form' => $form])
             ->set('captchaProvider', 'turnstile')
@@ -58,9 +60,10 @@ class FormEditProtectionTest extends TestCase
 
     public function test_turnstile_secret_key_is_encrypted_in_db(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
 
         Livewire::test(FormEdit::class, ['form' => $form])
             ->set('captchaProvider', 'turnstile')
@@ -82,9 +85,10 @@ class FormEditProtectionTest extends TestCase
 
     public function test_clearing_turnstile_secret_key_keeps_existing_value(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create([
+        $form = Form::factory()->ownedBy($user)->create([
             'captcha_provider' => 'turnstile',
             'captcha_site_key' => 'site-key',
             'captcha_secret_key' => 'original-secret',
@@ -102,9 +106,10 @@ class FormEditProtectionTest extends TestCase
 
     public function test_success_redirect_url_must_be_a_valid_url(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
 
         Livewire::test(FormEdit::class, ['form' => $form])
             ->set('successRedirectUrl', 'not-a-url')
@@ -114,9 +119,10 @@ class FormEditProtectionTest extends TestCase
 
     public function test_min_submission_seconds_must_be_within_range(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
 
         Livewire::test(FormEdit::class, ['form' => $form])
             ->set('minSubmissionSeconds', -1)
@@ -131,9 +137,10 @@ class FormEditProtectionTest extends TestCase
 
     public function test_honeypot_field_name_must_be_a_valid_identifier(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
 
         Livewire::test(FormEdit::class, ['form' => $form])
             ->set('honeypotField', 'has spaces')
@@ -143,9 +150,10 @@ class FormEditProtectionTest extends TestCase
 
     public function test_captcha_provider_must_be_a_known_value(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
 
         Livewire::test(FormEdit::class, ['form' => $form])
             ->set('captchaProvider', 'recaptcha')

@@ -5,6 +5,7 @@ namespace Database\Factories;
 use App\Enums\SubmissionStatus;
 use App\Models\Form;
 use App\Models\FormSubmission;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -42,6 +43,18 @@ class FormSubmissionFactory extends Factory
         return $this->state(fn (): array => [
             'status' => SubmissionStatus::Read->value,
             'read_at' => now(),
+        ]);
+    }
+
+    /**
+     * Indicate that the submission belongs to a form owned by the
+     * given user. Used by dashboard tests to set up SaaS-scoped
+     * ownership.
+     */
+    public function forFormOwnedBy(User $user): static
+    {
+        return $this->state(fn (): array => [
+            'form_id' => Form::factory()->ownedBy($user),
         ]);
     }
 }

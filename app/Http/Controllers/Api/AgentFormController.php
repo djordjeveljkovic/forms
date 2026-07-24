@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Api\Concerns\HandlesSubmissionResponses;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\AuthenticateAgent;
 use App\Models\Form;
 use App\Models\User;
 use App\Services\Agent\EmbedSnippetGenerator;
@@ -17,11 +18,17 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Agent-facing "create a form from an HTML snippet" endpoint.
  *
- * An AI agent POSTs a raw HTML snippet plus a desired form name. The
- * server parses the snippet into field definitions, persists a new
- * Form under the calling user, and returns the public submission URL
- * along with a copy-pasteable HTML embed snippet the agent can hand
- * to the user.
+ * Authentication is via the **forms-agent** personal access token
+ * (`forms_sk_…`, Sanctum-backed) — see {@see AuthenticateAgent}.
+ * That key is high-privilege: it lets the caller create as many
+ * forms as they want under the owning user's account. To keep the
+ * blast radius of a leak small, the key is **creation-only**: it
+ * never authenticates a submission.
+ *
+ * Submissions use the per-form `api_key` (returned in the response
+ * payload alongside the embed snippet). That key is single-purpose,
+ * scoped to one form, and is the only key that ships to the world
+ * inside the snippet HTML.
  */
 class AgentFormController extends Controller
 {
@@ -82,9 +89,10 @@ class AgentFormController extends Controller
                 // The agent already discovered the fields, so do not
                 // re-run auto-discovery on the first submission.
                 'auto_discover_fields' => false,
-                // Override the legacy /api/forms/{slug} default with
-                // the agent-facing submission URL.
-                'endpoint' => '/api/submit/'.$slug,
+                // The embed snippet targets the legacy per-form endpoint,
+                // which uses the form's `api_key` (not the user-level
+                // forms-agent key) for authentication.
+                'endpoint' => '/api/forms/'.$slug,
                 // The embed snippet is plain HTML — there's no
                 // JavaScript to refresh a `_timestamp` field per page
                 // load. Default to 0 (no timing check) so the snippet
@@ -103,11 +111,19 @@ class AgentFormController extends Controller
         $form->load('fields');
 
         $payload = [
-            'form_url' => url('/api/submit/'.$form->slug),
+            // Public submission URL. Visitors hit the legacy
+            // `/api/forms/{slug}` endpoint with the per-form api_key
+            // in a hidden body field (no query string).
+            'form_url' => url('/api/forms/'.$form->slug),
             'slug' => $form->slug,
             'name' => $form->name,
+            // Per-form api_key. The agent embeds this in the snippet
+            // and ships the snippet to the user's static site. It is
+            // scoped to this one form and never grants any other
+            // capability.
+            'api_key' => $form->api_key,
             'fields' => $form->activeFields()->map->toSchema()->values()->all(),
-            'embed_html' => $snippets->build($form, $this->currentKeyForSnippet($request, $user)),
+            'embed_html' => $snippets->build($form, $form->api_key),
         ];
 
         if ($this->wantsHtmlResponse($request)) {
@@ -140,50 +156,5 @@ class AgentFormController extends Controller
             ->filter(fn (string $part): bool => $part !== '' && filter_var($part, FILTER_VALIDATE_EMAIL) !== false)
             ->values()
             ->all();
-    }
-
-    /**
-     * Decide which user-key value to bake into the embed snippet.
-     *
-     * - Agents that authenticated with the key get a working snippet
-     *   that posts straight back to the new form.
-     * - Browsers hitting the endpoint with `Accept: text/html` never
-     *   typed a key in (the page renders the success view in response
-     *   to a form submit that included `_user_api`); we substitute a
-     *   placeholder so we don't expose a plaintext key in the HTML
-     *   they receive.
-     */
-    protected function currentKeyForSnippet(Request $request, User $user): string
-    {
-        if ($request->header('Authorization') || $request->query('user_api')) {
-            return $this->extractSentKey($request);
-        }
-
-        return '__YOUR_FORMS_KEY__';
-    }
-
-    /**
-     * Re-read the key the caller used to authenticate. We only know
-     * the plaintext key from the request, never from the database
-     * (Sanctum hashes them on insert).
-     */
-    protected function extractSentKey(Request $request): string
-    {
-        $authorization = $request->header('Authorization');
-        if (is_string($authorization) && str_starts_with(strtolower($authorization), 'bearer ')) {
-            return trim(substr($authorization, 7));
-        }
-
-        $query = $request->query('user_api');
-        if (is_string($query) && $query !== '') {
-            return $query;
-        }
-
-        $body = $request->input('_user_api');
-        if (is_string($body) && $body !== '') {
-            return $body;
-        }
-
-        return '__YOUR_FORMS_KEY__';
     }
 }

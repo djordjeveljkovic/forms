@@ -7,44 +7,55 @@ use App\Models\Form;
 use App\Models\FormField;
 
 /**
- * Build a copy-pasteable HTML snippet that points at a user-key-authenticated
- * submission endpoint.
+ * Build a copy-pasteable HTML snippet that posts visitor submissions
+ * to the existing `/api/forms/{slug}` endpoint using the form's
+ * per-form `api_key`.
  *
- * The agent response embeds this snippet so the end-user only needs to
- * paste one block of HTML onto their site. Authentication is done with
- * the user's forms-agent key, carried either as a hidden input or in
- * the action URL's query string.
+ * Security model:
+ * - The high-privilege forms-agent user-key (used to create the form
+ *   in the first place) is NEVER embedded in the snippet. Only the
+ *   per-form key — which is scoped to a single form — leaves the
+ *   agent's hands.
+ * - The per-form key is carried as a hidden POST body field, not as
+ *   a query-string parameter. Putting it in the URL would leak it
+ *   into browser history, server access logs, and the `Referer`
+ *   header when the user clicks any external link on the success
+ *   page.
  */
 class EmbedSnippetGenerator
 {
     /**
      * Build a snippet for the supplied form.
      *
-     * @param  bool  $useQueryString  if true, the user key is appended to the
-     *                                form action URL instead of being placed
-     *                                in a hidden input. Useful for GET-based
-     *                                forms but exposes the key in the HTML.
+     * @param  string  $formApiKey  the per-form api_key returned by
+     *                              `POST /api/agent/forms`. If empty
+     *                              (e.g. when rendering the success
+     *                              page for a browser that never
+     *                              typed a key in), the snippet uses
+     *                              a `__YOUR_FORM_KEY__` placeholder
+     *                              so the response HTML does not
+     *                              leak a working key.
      */
-    public function build(Form $form, string $userApiKey, bool $useQueryString = false): string
+    public function build(Form $form, string $formApiKey): string
     {
         $form->loadMissing('fields');
 
-        $endpoint = url('/api/submit/'.$form->slug);
-        if ($useQueryString && $userApiKey !== '') {
-            $endpoint .= '?user_api='.rawurlencode($userApiKey);
-        }
+        // The endpoint is the legacy per-form route, which already
+        // authenticates via api_key (header, query, or body) via the
+        // VerifyFormApiKey middleware. No query string here — the
+        // key rides in the POST body so it does not appear in
+        // browser history, server logs, or Referer headers.
+        $endpoint = url('/api/forms/'.$form->slug);
 
         $rows = [];
 
         $rows[] = '<form action="'.$this->e($endpoint).'" method="POST" class="space-y-4">';
 
-        // Internal control fields. The hidden _user_api input is what
-        // the new submission endpoint reads (when not in the query
-        // string); _timestamp satisfies the min-submission-time check
-        // when the form requires it.
-        if (! $useQueryString && $userApiKey !== '') {
-            $rows[] = '  <input type="hidden" name="_user_api" value="'.$this->e($userApiKey).'">';
-        }
+        // Per-form api_key as a hidden body field. VerifyFormApiKey
+        // reads this from `$request->input('api_key')`.
+        $displayKey = $formApiKey !== '' ? $formApiKey : '__YOUR_FORM_KEY__';
+        $rows[] = '  <input type="hidden" name="api_key" value="'.$this->e($displayKey).'">';
+
         if ((int) $form->min_submission_seconds > 0) {
             $rows[] = '  <input type="hidden" name="_timestamp" value="'.time().'">';
         }

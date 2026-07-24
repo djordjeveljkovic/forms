@@ -17,9 +17,10 @@ class FormExportImportTest extends TestCase
 
     public function test_export_method_returns_a_downloadable_json_file(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create([
+        $form = Form::factory()->ownedBy($user)->create([
             'name' => 'Contact',
             'slug' => 'contact',
             'recipient_emails' => ['admin@example.com'],
@@ -39,7 +40,8 @@ class FormExportImportTest extends TestCase
 
     public function test_exporter_service_produces_complete_payload(): void
     {
-        $form = Form::factory()->create([
+        $user = User::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create([
             'name' => 'Contact',
             'slug' => 'contact',
             'recipient_emails' => ['admin@example.com'],
@@ -65,7 +67,8 @@ class FormExportImportTest extends TestCase
 
     public function test_export_payload_omits_api_key(): void
     {
-        $form = Form::factory()->create();
+        $user = User::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
         $payload = app(FormExporter::class)->export($form);
 
         $this->assertArrayNotHasKey('api_key', $payload['form']);
@@ -122,7 +125,8 @@ class FormExportImportTest extends TestCase
 
     public function test_import_appends_suffix_when_slug_already_exists(): void
     {
-        Form::factory()->create(['slug' => 'contact']);
+        $user = User::factory()->create();
+        Form::factory()->ownedBy($user)->create(['slug' => 'contact']);
 
         $payload = [
             'form' => [
@@ -166,7 +170,8 @@ class FormExportImportTest extends TestCase
 
     public function test_round_trip_export_import_preserves_configuration(): void
     {
-        $original = Form::factory()->create([
+        $user = User::factory()->create();
+        $original = Form::factory()->ownedBy($user)->create([
             'name' => 'Contact',
             'slug' => 'contact',
             'description' => 'A contact form.',
@@ -207,14 +212,16 @@ class FormExportImportTest extends TestCase
 
     public function test_form_import_page_is_displayed(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
         $this->get(route('dashboard.forms.import'))->assertOk();
     }
 
     public function test_form_import_component_handles_invalid_json(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
         $component = Livewire::test(FormImport::class)
             ->set('rawJson', 'not json');
@@ -225,7 +232,8 @@ class FormExportImportTest extends TestCase
 
     public function test_form_import_component_previews_valid_payload(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
         $payload = json_encode([
             'form' => [
@@ -246,7 +254,8 @@ class FormExportImportTest extends TestCase
 
     public function test_form_import_component_rejects_payload_missing_recipients(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
         $payload = json_encode([
             'form' => [
@@ -321,7 +330,8 @@ class FormExportImportTest extends TestCase
 
     public function test_import_form_config_component_detects_fields_only_payload(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
         $payload = json_encode([
             ['name' => 'email', 'label' => 'Email', 'type' => 'email', 'required' => true, 'position' => 0],
@@ -336,7 +346,8 @@ class FormExportImportTest extends TestCase
 
     public function test_import_form_config_component_detects_full_payload(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
         $payload = json_encode([
             'form' => [
@@ -356,7 +367,8 @@ class FormExportImportTest extends TestCase
 
     public function test_import_form_config_component_creates_form_from_fields_only_payload(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
         $payload = json_encode([
             ['name' => 'email', 'label' => 'Email', 'type' => 'email', 'required' => true, 'position' => 0],
@@ -378,7 +390,8 @@ class FormExportImportTest extends TestCase
 
     public function test_export_includes_auto_discover_flag(): void
     {
-        $form = Form::factory()->create(['auto_discover_fields' => true]);
+        $user = User::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create(['auto_discover_fields' => true]);
         $payload = app(FormExporter::class)->export($form);
 
         $this->assertTrue($payload['form']['auto_discover_fields']);

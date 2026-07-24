@@ -20,11 +20,16 @@ class EmailJobShow extends Component
 
     public function mount(EmailJob $job): void
     {
+        // SaaS isolation: only the form's owner may view an email job.
+        $this->authorize('view', $job);
+
         $this->job = $job;
     }
 
     public function retry(): void
     {
+        $this->authorize('view', $this->job);
+
         if ($this->job->status !== EmailJobStatus::Failed->value) {
             Flux::toast(variant: 'warning', text: __('Only failed jobs can be retried.'));
 

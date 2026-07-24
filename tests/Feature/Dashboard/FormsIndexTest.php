@@ -20,17 +20,19 @@ class FormsIndexTest extends TestCase
 
     public function test_authenticated_users_can_view_forms_index(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
         $this->get(route('dashboard.forms.index'))->assertOk();
     }
 
     public function test_forms_listing_shows_existing_forms(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        Form::factory()->create(['name' => 'Contact Form']);
-        Form::factory()->create(['name' => 'Newsletter Form']);
+        Form::factory()->ownedBy($user)->create(['name' => 'Contact Form']);
+        Form::factory()->ownedBy($user)->create(['name' => 'Newsletter Form']);
 
         Livewire::test(FormsIndex::class)
             ->assertSee('Contact Form')
@@ -39,10 +41,11 @@ class FormsIndexTest extends TestCase
 
     public function test_search_filter_narrows_results(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        Form::factory()->create(['name' => 'Contact Form']);
-        Form::factory()->create(['name' => 'Newsletter Form']);
+        Form::factory()->ownedBy($user)->create(['name' => 'Contact Form']);
+        Form::factory()->ownedBy($user)->create(['name' => 'Newsletter Form']);
 
         Livewire::test(FormsIndex::class)
             ->set('search', 'contact')
@@ -52,10 +55,11 @@ class FormsIndexTest extends TestCase
 
     public function test_archived_forms_can_be_filtered(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        Form::factory()->create(['name' => 'Active Form']);
-        Form::factory()->archived()->create(['name' => 'Archived Form']);
+        Form::factory()->ownedBy($user)->create(['name' => 'Active Form']);
+        Form::factory()->ownedBy($user)->archived()->create(['name' => 'Archived Form']);
 
         Livewire::test(FormsIndex::class)
             ->set('statusFilter', 'archived')
@@ -65,9 +69,10 @@ class FormsIndexTest extends TestCase
 
     public function test_archive_marks_form_as_archived(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
 
         Livewire::test(FormsIndex::class)
             ->call('archive', $form->id);
@@ -78,9 +83,10 @@ class FormsIndexTest extends TestCase
 
     public function test_restore_unarchives_form(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->archived()->create();
+        $form = Form::factory()->ownedBy($user)->archived()->create();
 
         Livewire::test(FormsIndex::class)
             ->call('restore', $form->id);
@@ -91,9 +97,10 @@ class FormsIndexTest extends TestCase
 
     public function test_api_key_can_be_regenerated(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
         $oldKey = $form->api_key;
 
         Livewire::test(FormsIndex::class)

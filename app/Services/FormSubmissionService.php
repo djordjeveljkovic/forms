@@ -207,8 +207,10 @@ class FormSubmissionService
 
     /**
      * Strip internal control fields (leading underscore + the Turnstile
-     * response token) from a payload so they never reach the validator
-     * or get persisted into the submission JSON.
+     * response token + the per-form api_key) from a payload so they
+     * never reach the validator or get persisted into the submission
+     * JSON. The `api_key` field is read by `VerifyFormApiKey` to
+     * authenticate the request and must be removed before validation.
      *
      * @param  array<string, mixed>  $data
      * @return array<string, mixed>
@@ -216,7 +218,9 @@ class FormSubmissionService
     protected function stripControlFields(array $data): array
     {
         return collect($data)
-            ->reject(fn (mixed $value, string $key) => str_starts_with($key, '_') || $key === 'cf-turnstile-response')
+            ->reject(fn (mixed $value, string $key) => str_starts_with($key, '_')
+                || $key === 'cf-turnstile-response'
+                || $key === 'api_key')
             ->all();
     }
 

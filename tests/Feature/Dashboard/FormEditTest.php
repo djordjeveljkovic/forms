@@ -16,17 +16,19 @@ class FormEditTest extends TestCase
 
     public function test_page_is_displayed_for_existing_form(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
         $this->get(route('dashboard.forms.edit', $form))->assertOk();
     }
 
     public function test_form_can_be_updated(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create([
+        $form = Form::factory()->ownedBy($user)->create([
             'name' => 'Old name',
             'recipient_emails' => ['old@example.com'],
         ]);
@@ -47,8 +49,9 @@ class FormEditTest extends TestCase
 
     public function test_api_key_regenerates(): void
     {
-        $this->actingAs(User::factory()->create());
-        $form = Form::factory()->create();
+        $user = User::factory()->create();
+        $this->actingAs($user);
+        $form = Form::factory()->ownedBy($user)->create();
         $oldKey = $form->api_key;
 
         Livewire::test(FormEdit::class, ['form' => $form])
@@ -59,8 +62,9 @@ class FormEditTest extends TestCase
 
     public function test_form_can_be_deleted(): void
     {
-        $this->actingAs(User::factory()->create());
-        $form = Form::factory()->create();
+        $user = User::factory()->create();
+        $this->actingAs($user);
+        $form = Form::factory()->ownedBy($user)->create();
 
         Livewire::test(FormEdit::class, ['form' => $form])
             ->call('delete')
@@ -71,9 +75,10 @@ class FormEditTest extends TestCase
 
     public function test_existing_fields_are_loaded_into_rows(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
         $form->fields()->createMany([
             ['name' => 'email', 'label' => 'Email', 'type' => 'email', 'required' => true, 'position' => 0],
             ['name' => 'message', 'label' => 'Message', 'type' => 'textarea', 'required' => false, 'position' => 1],
@@ -90,9 +95,10 @@ class FormEditTest extends TestCase
 
     public function test_fields_can_be_updated(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
         $form->fields()->create([
             'name' => 'email', 'label' => 'Email', 'type' => 'email', 'required' => false, 'position' => 0,
         ]);
@@ -110,8 +116,9 @@ class FormEditTest extends TestCase
 
     public function test_fields_can_be_added_via_edit_screen(): void
     {
-        $this->actingAs(User::factory()->create());
-        $form = Form::factory()->create();
+        $user = User::factory()->create();
+        $this->actingAs($user);
+        $form = Form::factory()->ownedBy($user)->create();
 
         Livewire::test(FormEdit::class, ['form' => $form])
             ->set('fields.0.name', 'phone')
@@ -127,8 +134,9 @@ class FormEditTest extends TestCase
 
     public function test_fields_can_be_removed_via_edit_screen(): void
     {
-        $this->actingAs(User::factory()->create());
-        $form = Form::factory()->create();
+        $user = User::factory()->create();
+        $this->actingAs($user);
+        $form = Form::factory()->ownedBy($user)->create();
         $form->fields()->create([
             'name' => 'old', 'label' => 'Old', 'type' => 'text', 'required' => false, 'position' => 0,
         ]);

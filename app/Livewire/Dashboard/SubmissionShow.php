@@ -24,6 +24,9 @@ class SubmissionShow extends Component
      */
     public function mount(FormSubmission $submission): void
     {
+        // SaaS isolation: only the form's owner may view a submission.
+        $this->authorize('view', $submission);
+
         $this->submission = $submission;
 
         if ($submission->status === SubmissionStatus::Received->value) {

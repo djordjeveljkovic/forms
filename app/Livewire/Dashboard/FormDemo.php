@@ -39,6 +39,9 @@ class FormDemo extends Component
      */
     public function mount(Form $form): void
     {
+        // SaaS isolation: only the form's owner may use the demo page.
+        $this->authorize('view', $form);
+
         $this->form = $form;
         $this->apiKey = $form->api_key;
 
@@ -52,6 +55,8 @@ class FormDemo extends Component
      */
     public function submit(): void
     {
+        $this->authorize('view', $this->form);
+
         $data = collect($this->values)
             ->reject(fn ($value) => $value === '' || $value === null)
             ->all();

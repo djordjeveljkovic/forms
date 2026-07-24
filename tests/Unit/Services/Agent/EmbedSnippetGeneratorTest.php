@@ -46,18 +46,26 @@ class EmbedSnippetGeneratorTest extends TestCase
         return $form;
     }
 
-    public function test_snippet_contains_action_url_and_hidden_user_api(): void
+    public function test_snippet_targets_legacy_per_form_endpoint_with_hidden_api_key(): void
     {
         $user = User::factory()->create();
         $form = $this->makeForm($user);
         $generator = new EmbedSnippetGenerator;
 
-        $html = $generator->build($form, 'forms_sk_abc123');
+        $html = $generator->build($form, 'KFS_per_form_secret_123');
 
-        $this->assertStringContainsString('action="'.url('/api/submit/contact').'"', $html);
-        $this->assertStringContainsString('method="POST"', $html);
-        $this->assertStringContainsString('name="_user_api"', $html);
-        $this->assertStringContainsString('value="forms_sk_abc123"', $html);
+        // Action posts to the legacy /api/forms/{slug} endpoint —
+        // the same route the dashboard has always used, now reused
+        // for visitor submissions against agent-created forms.
+        $this->assertStringContainsString('action="'.url('/api/forms/contact').'"', $html);
+        $this->assertStringNotContainsString('/api/submit/', $html);
+        $this->assertStringNotContainsString('user_api', $html);
+
+        // Per-form api_key is in a hidden body field — never in the
+        // URL (so it never ends up in browser history or Referer
+        // headers), never as a header (HTML forms cannot set headers).
+        $this->assertStringContainsString('name="api_key"', $html);
+        $this->assertStringContainsString('value="KFS_per_form_secret_123"', $html);
     }
 
     public function test_snippet_renders_all_active_fields(): void
@@ -66,7 +74,7 @@ class EmbedSnippetGeneratorTest extends TestCase
         $form = $this->makeForm($user);
         $generator = new EmbedSnippetGenerator;
 
-        $html = $generator->build($form, 'forms_sk_abc123');
+        $html = $generator->build($form, 'KFS_secret');
 
         $this->assertStringContainsString('name="email"', $html);
         $this->assertStringContainsString('type="email"', $html);
@@ -80,7 +88,7 @@ class EmbedSnippetGeneratorTest extends TestCase
         $form = $this->makeForm($user, ['honeypot_field' => 'website']);
         $generator = new EmbedSnippetGenerator;
 
-        $html = $generator->build($form, 'forms_sk_abc123');
+        $html = $generator->build($form, 'KFS_secret');
 
         $this->assertStringContainsString('left:-9999px', $html);
         $this->assertStringContainsString('name="website"', $html);
@@ -92,7 +100,7 @@ class EmbedSnippetGeneratorTest extends TestCase
         $form = $this->makeForm($user, ['min_submission_seconds' => 5]);
         $generator = new EmbedSnippetGenerator;
 
-        $html = $generator->build($form, 'forms_sk_abc123');
+        $html = $generator->build($form, 'KFS_secret');
 
         $this->assertStringContainsString('name="_timestamp"', $html);
     }
@@ -103,21 +111,23 @@ class EmbedSnippetGeneratorTest extends TestCase
         $form = $this->makeForm($user, ['min_submission_seconds' => 0]);
         $generator = new EmbedSnippetGenerator;
 
-        $html = $generator->build($form, 'forms_sk_abc123');
+        $html = $generator->build($form, 'KFS_secret');
 
         $this->assertStringNotContainsString('name="_timestamp"', $html);
     }
 
-    public function test_query_string_mode_puts_key_in_action_url(): void
+    public function test_snippet_uses_placeholder_when_api_key_empty(): void
     {
         $user = User::factory()->create();
         $form = $this->makeForm($user);
         $generator = new EmbedSnippetGenerator;
 
-        $html = $generator->build($form, 'forms_sk_abc123', useQueryString: true);
+        // An empty key (e.g. when rendering a preview for a browser
+        // request that didn't authenticate) uses a placeholder string
+        // so the rendered HTML does not contain a working key.
+        $html = $generator->build($form, '');
 
-        $this->assertStringContainsString('user_api=forms_sk_abc123', $html);
-        $this->assertStringNotContainsString('name="_user_api"', $html);
+        $this->assertStringContainsString('__YOUR_FORM_KEY__', $html);
     }
 
     public function test_snippet_escapes_user_supplied_field_values(): void
@@ -126,10 +136,10 @@ class EmbedSnippetGeneratorTest extends TestCase
         $form = $this->makeForm($user);
         $generator = new EmbedSnippetGenerator;
 
-        $html = $generator->build($form, 'forms_sk_abc"injected');
+        $html = $generator->build($form, 'KFS_secret"injected');
 
         // The injected quote character must be HTML-escaped.
-        $this->assertStringNotContainsString('abc"injected', $html);
-        $this->assertStringContainsString('abc&quot;injected', $html);
+        $this->assertStringNotContainsString('KFS_secret"injected', $html);
+        $this->assertStringContainsString('KFS_secret&quot;injected', $html);
     }
 }

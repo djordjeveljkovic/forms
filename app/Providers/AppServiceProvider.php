@@ -2,12 +2,19 @@
 
 namespace App\Providers;
 
+use App\Models\EmailJob;
+use App\Models\Form;
+use App\Models\FormSubmission;
+use App\Policies\EmailJobPolicy;
+use App\Policies\FormPolicy;
+use App\Policies\FormSubmissionPolicy;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Middleware\TrustProxies as TrustProxiesMiddleware;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
@@ -30,6 +37,24 @@ class AppServiceProvider extends ServiceProvider
         $this->configureDefaults();
         $this->configureRateLimiters();
         $this->configureTrustedProxies();
+        $this->registerPolicies();
+    }
+
+    /**
+     * Map Eloquent models to their policies.
+     *
+     * Form, FormSubmission, and EmailJob are all user-scoped SaaS
+     * resources; each is owned by exactly one user, and only the
+     * owner may view/edit/delete them. The policies live in
+     * `App\Policies\` and are resolved by the `Gate` facade so
+     * `$user->can('update', $form)` and `Gate::authorize('view',
+     * $submission)` both work.
+     */
+    protected function registerPolicies(): void
+    {
+        Gate::policy(Form::class, FormPolicy::class);
+        Gate::policy(FormSubmission::class, FormSubmissionPolicy::class);
+        Gate::policy(EmailJob::class, EmailJobPolicy::class);
     }
 
     /**

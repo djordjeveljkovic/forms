@@ -18,15 +18,17 @@ class AnalyticsTest extends TestCase
 
     public function test_analytics_page_is_displayed(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
         $this->get(route('dashboard.index'))->assertOk();
     }
 
     public function test_analytics_counts_submissions_in_range(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
         FormSubmission::factory()->count(3)->for($form)->create();
 
         Livewire::test(Analytics::class)
@@ -36,10 +38,11 @@ class AnalyticsTest extends TestCase
 
     public function test_analytics_counts_active_forms(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
         Form::factory()->count(2)->create();
-        Form::factory()->archived()->create();
+        Form::factory()->ownedBy($user)->archived()->create();
 
         Livewire::test(Analytics::class)
             ->assertSee('2');
@@ -47,9 +50,10 @@ class AnalyticsTest extends TestCase
 
     public function test_analytics_counts_email_statuses(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
         $submission = FormSubmission::factory()->for($form)->create();
         EmailJob::factory()->for($submission, 'submission')->sent()->create();
         EmailJob::factory()->for($submission, 'submission')->failed()->create();
@@ -61,7 +65,8 @@ class AnalyticsTest extends TestCase
 
     public function test_range_can_be_changed(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
         Livewire::test(Analytics::class)
             ->call('setRange', '7d')
@@ -70,7 +75,8 @@ class AnalyticsTest extends TestCase
 
     public function test_invalid_range_is_ignored(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
         Livewire::test(Analytics::class)
             ->call('setRange', 'bogus')

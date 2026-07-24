@@ -13,11 +13,20 @@ use Tests\TestCase;
 /**
  * End-to-end smoke test for the agent workflow:
  *
- *   1. User has a forms-agent token.
- *   2. External agent POSTs HTML to /api/agent/forms.
- *   3. Agent receives form_url + embed_html back.
- *   4. A visitor submits the embed snippet (i.e. the embed_html).
- *   5. The submission lands in the DB + queues an email job.
+ *   1. User signs in.
+ *   2. User generates a forms-agent token (the creation-only key).
+ *   3. External agent POSTs an HTML snippet to /api/agent/forms
+ *      authenticated with the forms-agent token.
+ *   4. Agent receives form_url + per-form api_key + embed_html.
+ *   5. Visitor submits the embed snippet — the snippet carries the
+ *      per-form api_key as a hidden body field, and posts to the
+ *      legacy /api/forms/{slug} endpoint.
+ *   6. The submission lands in the DB and queues an email job.
+ *
+ * Verifies that:
+ *   - The forms-agent token authenticates the create-form request.
+ *   - The per-form api_key returned by the response authenticates
+ *     the submission (the forms-agent token is NOT used for it).
  */
 class AgentWorkflowSmokeTest extends TestCase
 {
@@ -33,11 +42,13 @@ class AgentWorkflowSmokeTest extends TestCase
             'email' => 'owner@example.com',
         ]);
 
-        // 2. User generates a forms-agent token from the dashboard.
-        $plain = $user->createToken(User::FORMS_AGENT_TOKEN_NAME, ['*'])->plainTextToken;
-        $this->assertIsString($plain);
+        // 2. User generates a forms-agent (creation-only) token.
+        $formsAgentKey = $user->createToken(User::FORMS_AGENT_TOKEN_NAME, ['*'])->plainTextToken;
+        $this->assertIsString($formsAgentKey);
 
-        // 3. AI agent POSTs an HTML snippet to /api/agent/forms.
+        // 3. AI agent POSTs an HTML snippet, authenticated with the
+        //    forms-agent key. The agent does NOT have a per-form key
+        //    yet — that comes back in the response.
         $snippet = <<<'HTML'
 <form action="/x" method="POST">
     <label for="email">Email</label>
@@ -49,7 +60,7 @@ class AgentWorkflowSmokeTest extends TestCase
 HTML;
 
         $agentResponse = $this->withHeaders([
-            'Authorization' => 'Bearer '.$plain,
+            'Authorization' => 'Bearer '.$formsAgentKey,
             'Accept' => 'application/json',
         ])->post('/api/agent/forms', [
             'form_name' => 'contact',
@@ -59,29 +70,33 @@ HTML;
 
         $agentResponse->assertCreated();
         $formUrl = $agentResponse->json('form_url');
+        $perFormKey = $agentResponse->json('api_key');
         $embedHtml = $agentResponse->json('embed_html');
         $slug = $agentResponse->json('slug');
 
-        $form = Form::query()->where('slug', 'contact')->firstOrFail();
-        $this->assertSame(0, (int) $form->min_submission_seconds, 'min_submission_seconds should be 0 for the smoke test');
-
         $this->assertSame('contact', $slug);
-        $this->assertStringContainsString('/api/submit/contact', $formUrl);
-        $this->assertStringContainsString('name="_user_api"', $embedHtml);
-        $this->assertStringContainsString($plain, $embedHtml);
+        $this->assertIsString($perFormKey);
+        $this->assertNotSame('', $perFormKey);
+        $this->assertStringContainsString('/api/forms/contact', $formUrl);
+        $this->assertStringNotContainsString('/api/submit/', $formUrl);
 
-        // 4. Visitor submits the embed snippet — hidden _user_api
-        //    rides along with the form fields.
-        $visitorPayload = [
-            '_user_api' => $plain,
-            'email' => 'visitor@example.com',
-            'message' => 'Hello from the smoke test',
-        ];
+        // The high-privilege forms-agent key never appears in the
+        // snippet; only the lower-privilege per-form key does.
+        $this->assertStringContainsString('name="api_key"', $embedHtml);
+        $this->assertStringContainsString($perFormKey, $embedHtml);
+        $this->assertStringNotContainsString($formsAgentKey, $embedHtml);
 
+        // 4. Visitor submits the embed snippet. The snippet posts to
+        //    the legacy /api/forms/{slug} endpoint, carrying the
+        //    per-form api_key as a hidden body field.
         $submissionResponse = $this->call(
             'POST',
             $formUrl,
-            $visitorPayload,
+            [
+                'api_key' => $perFormKey,
+                'email' => 'visitor@example.com',
+                'message' => 'Hello from the smoke test',
+            ],
             [],
             [],
             ['HTTP_ACCEPT' => 'application/json'],
@@ -97,5 +112,16 @@ HTML;
         ]);
 
         $this->assertSame(1, EmailJob::query()->count());
+
+        // 6. The forms-agent token cannot be used to submit — it is
+        //    creation-only. A visitor sending it instead of the
+        //    per-form key gets 401 from the per-form middleware.
+        $this->withHeaders([
+            'Authorization' => 'Bearer '.$formsAgentKey,
+            'Accept' => 'application/json',
+        ])->post($formUrl, [
+            'email' => 'evil@example.com',
+            'message' => 'should fail',
+        ])->assertStatus(401);
     }
 }

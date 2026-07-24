@@ -11,6 +11,7 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -60,6 +61,7 @@ class EmailJobs extends Component
     public function retry(int $jobId): void
     {
         $job = EmailJob::query()->findOrFail($jobId);
+        $this->authorize('view', $job);
 
         if ($job->status !== EmailJobStatus::Failed->value) {
             Flux::toast(variant: 'warning', text: __('Only failed jobs can be retried.'));
@@ -108,7 +110,7 @@ class EmailJobs extends Component
     #[Computed]
     public function forms(): Collection
     {
-        return Form::query()->orderBy('name')->get();
+        return Form::query()->ownedBy(Auth::user())->orderBy('name')->get();
     }
 
     /**
@@ -152,6 +154,7 @@ class EmailJobs extends Component
     {
         return EmailJob::query()
             ->with(['submission.form'])
+            ->whereHas('submission.form', fn (Builder $q) => $q->where('user_id', Auth::id()))
             ->when($this->formFilter !== '', fn ($q) => $q->whereHas('submission.form', fn ($q) => $q->where('slug', $this->formFilter)))
             ->when($this->statusFilter !== 'all', fn ($q) => $q->where('status', $this->statusFilter))
             ->when($this->search !== '', function ($q): void {

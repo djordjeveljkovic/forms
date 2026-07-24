@@ -11,6 +11,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
@@ -83,6 +84,8 @@ class SubmissionsIndex extends Component
     public function markRead(int $submissionId): void
     {
         $submission = FormSubmission::query()->findOrFail($submissionId);
+        $this->authorize('view', $submission);
+
         $submission->forceFill([
             'status' => SubmissionStatus::Read->value,
             'read_at' => $submission->read_at ?? now(),
@@ -92,6 +95,8 @@ class SubmissionsIndex extends Component
     public function markSpam(int $submissionId): void
     {
         $submission = FormSubmission::query()->findOrFail($submissionId);
+        $this->authorize('view', $submission);
+
         $submission->forceFill([
             'status' => SubmissionStatus::Spam->value,
         ])->save();
@@ -114,7 +119,7 @@ class SubmissionsIndex extends Component
     #[Computed]
     public function forms(): Collection
     {
-        return Form::query()->orderBy('name')->get();
+        return Form::query()->ownedBy(Auth::user())->orderBy('name')->get();
     }
 
     /**
@@ -176,7 +181,10 @@ class SubmissionsIndex extends Component
     }
 
     /**
-     * Build the list query with all filters.
+     * Build the list query with all filters. Scoped to submissions
+     * whose form is owned by the authenticated user — this is the
+     * SaaS-isolation guarantee: a user can never see or export
+     * another user's submissions.
      *
      * @return Builder<FormSubmission>
      */
@@ -184,6 +192,7 @@ class SubmissionsIndex extends Component
     {
         return FormSubmission::query()
             ->with(['form', 'emailJobs'])
+            ->whereHas('form', fn (Builder $q) => $q->where('user_id', Auth::id()))
             ->when($this->formFilter !== '', fn ($q) => $q->whereHas('form', fn ($q) => $q->where('slug', $this->formFilter)))
             ->when($this->statusFilter !== 'all', fn ($q) => $q->where('status', $this->statusFilter))
             ->when($this->search !== '', function ($q): void {

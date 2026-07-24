@@ -19,17 +19,19 @@ class FormDemoTest extends TestCase
 
     public function test_demo_page_is_displayed(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
         $this->get(route('dashboard.forms.demo', $form))->assertOk();
     }
 
     public function test_demo_page_renders_field_inputs(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
         $form->fields()->createMany([
             ['name' => 'email', 'label' => 'Email', 'type' => 'email', 'required' => true, 'position' => 0],
             ['name' => 'message', 'label' => 'Message', 'type' => 'textarea', 'required' => false, 'position' => 1],
@@ -44,9 +46,10 @@ class FormDemoTest extends TestCase
 
     public function test_demo_can_switch_tabs(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
 
         Livewire::test(FormDemo::class, ['form' => $form])
             ->assertSet('activeTab', 'test')
@@ -58,9 +61,10 @@ class FormDemoTest extends TestCase
 
     public function test_demo_ignores_unknown_tabs(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
 
         Livewire::test(FormDemo::class, ['form' => $form])
             ->call('setTab', 'bogus')
@@ -69,9 +73,10 @@ class FormDemoTest extends TestCase
 
     public function test_demo_html_snippet_contains_inputs_and_action(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create(['slug' => 'contact']);
+        $form = Form::factory()->ownedBy($user)->create(['slug' => 'contact']);
         $form->fields()->create([
             'name' => 'email', 'label' => 'Email address', 'type' => 'email', 'required' => true, 'position' => 0,
         ]);
@@ -87,9 +92,10 @@ class FormDemoTest extends TestCase
 
     public function test_demo_js_snippet_contains_endpoint_and_field_names(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
         $form->fields()->createMany([
             ['name' => 'email', 'label' => 'Email', 'type' => 'email', 'required' => true, 'position' => 0],
             ['name' => 'message', 'label' => 'Message', 'type' => 'textarea', 'required' => false, 'position' => 1],
@@ -106,9 +112,10 @@ class FormDemoTest extends TestCase
 
     public function test_demo_html_snippet_renders_radio_field(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
         $form->fields()->create([
             'name' => 'choice', 'label' => 'Pick one', 'type' => 'radio', 'required' => true, 'position' => 0,
             'options' => ['Yes', 'No'],
@@ -124,9 +131,10 @@ class FormDemoTest extends TestCase
 
     public function test_demo_html_snippet_renders_checkbox_field_with_array_name(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
         $form->fields()->create([
             'name' => 'tags', 'label' => 'Tags', 'type' => 'checkbox', 'required' => false, 'position' => 0,
             'options' => ['red', 'blue'],
@@ -143,9 +151,10 @@ class FormDemoTest extends TestCase
     {
         Queue::fake();
 
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create(['send_email' => true]);
+        $form = Form::factory()->ownedBy($user)->create(['send_email' => true]);
         $form->fields()->createMany([
             ['name' => 'email', 'label' => 'Email', 'type' => 'email', 'required' => true, 'position' => 0],
             ['name' => 'message', 'label' => 'Message', 'type' => 'textarea', 'required' => true, 'position' => 1],
@@ -168,9 +177,10 @@ class FormDemoTest extends TestCase
 
     public function test_demo_submit_shows_validation_errors(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
         $form->fields()->create([
             'name' => 'email', 'label' => 'Email', 'type' => 'email', 'required' => true, 'position' => 0,
         ]);
@@ -188,9 +198,10 @@ class FormDemoTest extends TestCase
     {
         Queue::fake();
 
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create(['send_email' => false]);
+        $form = Form::factory()->ownedBy($user)->create(['send_email' => false]);
         $form->fields()->create([
             'name' => 'name', 'label' => 'Name', 'type' => 'text', 'required' => true, 'position' => 0,
         ]);
@@ -209,9 +220,10 @@ class FormDemoTest extends TestCase
     {
         Queue::fake();
 
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create(['send_email' => false, 'store_submissions' => true]);
+        $form = Form::factory()->ownedBy($user)->create(['send_email' => false, 'store_submissions' => true]);
         $form->fields()->create([
             'name' => 'name', 'label' => 'Name', 'type' => 'text', 'required' => true, 'position' => 0,
         ]);
@@ -228,9 +240,10 @@ class FormDemoTest extends TestCase
 
     public function test_demo_submit_rejects_archived_form(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->archived()->create();
+        $form = Form::factory()->ownedBy($user)->archived()->create();
         $form->fields()->create([
             'name' => 'name', 'label' => 'Name', 'type' => 'text', 'required' => true, 'position' => 0,
         ]);

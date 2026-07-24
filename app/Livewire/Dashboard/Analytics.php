@@ -7,7 +7,9 @@ use App\Models\EmailJob;
 use App\Models\Form;
 use App\Models\FormSubmission;
 use Carbon\CarbonPeriod;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
@@ -64,40 +66,49 @@ class Analytics extends Component
 
     /**
      * Total submissions within the current range.
+     *
+     * Scoped to the authenticated user's forms — each user sees
+     * only their own stats.
      */
     #[Computed]
     public function totalSubmissions(): int
     {
         return FormSubmission::query()
+            ->whereHas('form', fn (Builder $q) => $q->where('user_id', Auth::id()))
             ->where('created_at', '>=', $this->since())
             ->count();
     }
 
     /**
-     * Total submissions all time.
+     * Total submissions all time, scoped to the user's forms.
      */
     #[Computed]
     public function totalSubmissionsAllTime(): int
     {
-        return FormSubmission::query()->count();
+        return FormSubmission::query()
+            ->whereHas('form', fn (Builder $q) => $q->where('user_id', Auth::id()))
+            ->count();
     }
 
     /**
-     * Total forms.
+     * Total forms, scoped to the user's forms.
      */
     #[Computed]
     public function totalForms(): int
     {
-        return Form::query()->count();
+        return Form::query()->ownedBy(Auth::user())->count();
     }
 
     /**
-     * Active forms.
+     * Active forms, scoped to the user's forms.
      */
     #[Computed]
     public function activeForms(): int
     {
-        return Form::query()->where('is_archived', false)->count();
+        return Form::query()
+            ->ownedBy(Auth::user())
+            ->where('is_archived', false)
+            ->count();
     }
 
     /**
@@ -112,7 +123,8 @@ class Analytics extends Component
     }
 
     /**
-     * Submissions grouped by day for the chart.
+     * Submissions grouped by day for the chart. Scoped to the
+     * user's forms.
      *
      * @return array<int, array{label: string, count: int, date: string}>
      */
@@ -123,6 +135,7 @@ class Analytics extends Component
         $format = $driver === 'sqlite' ? "strftime('%Y-%m-%d', created_at)" : 'DATE(created_at)';
 
         $rows = FormSubmission::query()
+            ->whereHas('form', fn (Builder $q) => $q->where('user_id', Auth::id()))
             ->selectRaw("{$format} as date, COUNT(*) as count")
             ->where('created_at', '>=', $this->since())
             ->groupBy('date')
@@ -145,7 +158,7 @@ class Analytics extends Component
     }
 
     /**
-     * Submissions grouped by form.
+     * Submissions grouped by form, scoped to the user's forms.
      *
      * @return array<int, array{name: string, count: int, slug: string}>
      */
@@ -153,6 +166,7 @@ class Analytics extends Component
     public function submissionsByForm(): array
     {
         return Form::query()
+            ->ownedBy(Auth::user())
             ->withCount(['submissions' => function ($query): void {
                 $query->where('created_at', '>=', $this->since());
             }])
@@ -168,7 +182,9 @@ class Analytics extends Component
     }
 
     /**
-     * Email job counts grouped by status within the range.
+     * Email job counts grouped by status within the range, scoped
+     * to email jobs whose submission belongs to one of the user's
+     * forms.
      *
      * @return array<string, int>
      */
@@ -176,6 +192,7 @@ class Analytics extends Component
     public function emailStatusBreakdown(): array
     {
         $rows = EmailJob::query()
+            ->whereHas('submission.form', fn (Builder $q) => $q->where('user_id', Auth::id()))
             ->where('created_at', '>=', $this->since())
             ->selectRaw('status, COUNT(*) as count')
             ->groupBy('status')

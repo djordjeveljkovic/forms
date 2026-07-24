@@ -20,15 +20,17 @@ class EmailJobsTest extends TestCase
 
     public function test_page_is_displayed(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
         $this->get(route('dashboard.email-jobs.index'))->assertOk();
     }
 
     public function test_jobs_listing_shows_data(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create(['name' => 'Contact']);
+        $form = Form::factory()->ownedBy($user)->create(['name' => 'Contact']);
         $submission = FormSubmission::factory()->for($form)->create();
         EmailJob::factory()->for($submission, 'submission')->create([
             'recipient' => 'team@example.com',
@@ -42,9 +44,10 @@ class EmailJobsTest extends TestCase
 
     public function test_filter_by_status(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
         $submission = FormSubmission::factory()->for($form)->create();
 
         EmailJob::factory()->for($submission, 'submission')->sent()->create();
@@ -59,9 +62,10 @@ class EmailJobsTest extends TestCase
     {
         Queue::fake();
 
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
         $submission = FormSubmission::factory()->for($form)->create();
         $job = EmailJob::factory()->for($submission, 'submission')->failed()->create();
 
@@ -76,9 +80,10 @@ class EmailJobsTest extends TestCase
     {
         Queue::fake();
 
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
         $submission = FormSubmission::factory()->for($form)->create();
         $job = EmailJob::factory()->for($submission, 'submission')->sent()->create();
 

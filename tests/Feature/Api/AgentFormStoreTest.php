@@ -141,16 +141,20 @@ HTML;
             'form_url',
             'slug',
             'name',
+            'api_key',
             'fields',
             'embed_html',
         ]);
         $response->assertJsonPath('slug', 'contact');
         $response->assertJsonPath('name', 'contact');
 
-        // Per-form api_key is intentionally hidden from the agent.
-        $decoded = $response->json();
-        $this->assertIsArray($decoded);
-        $this->assertArrayNotHasKey('api_key', $decoded);
+        // Per-form api_key is returned so the agent can drop it into
+        // the embed snippet. The forms-agent user-key (which the agent
+        // used to authenticate this request) is never returned and
+        // never appears in the snippet.
+        $apiKey = $response->json('api_key');
+        $this->assertIsString($apiKey);
+        $this->assertNotSame('', $apiKey);
 
         $this->assertDatabaseHas('forms', [
             'user_id' => $user->id,
@@ -181,9 +185,43 @@ HTML;
         // Auto-discover is disabled — the agent did the work.
         $this->assertFalse((bool) $form->auto_discover_fields);
 
-        // The embed snippet uses the same key the agent posted.
-        $this->assertStringContainsString('action="'.url('/api/submit/contact').'"', $response->json('embed_html'));
-        $this->assertStringContainsString('name="_user_api"', $response->json('embed_html'));
+        // The snippet posts to the legacy per-form endpoint with the
+        // per-form api_key as a hidden body field — never in the URL,
+        // never the high-privilege forms-agent key.
+        $snippet = $response->json('embed_html');
+        $this->assertStringContainsString('action="'.url('/api/forms/contact').'"', $snippet);
+        $this->assertStringContainsString('name="api_key" value="'.$apiKey.'"', $snippet);
+        $this->assertStringNotContainsString('/api/submit/', $snippet);
+        $this->assertStringNotContainsString('user_api', $snippet);
+    }
+
+    public function test_response_contains_per_form_api_key_for_visitor_auth(): void
+    {
+        $user = User::factory()->create();
+
+        $response = $this->withHeaders($this->authHeaders($user))
+            ->post('/api/agent/forms', [
+                'form_name' => 'contact',
+                'html' => '<form><input name="email" type="email" required></form>',
+            ]);
+
+        $response->assertCreated();
+        $apiKey = $response->json('api_key');
+        $this->assertNotEmpty($apiKey);
+
+        // The api_key returned in the response matches the one stored
+        // on the form, and is what visitors must send to submit.
+        $form = Form::query()->where('slug', 'contact')->firstOrFail();
+        $this->assertSame($apiKey, $form->api_key);
+
+        // Visitors can actually use it against the legacy endpoint
+        // (with the key in a hidden body field) to submit.
+        $submit = $this->post('/api/forms/contact', [
+            'api_key' => $apiKey,
+            'email' => 'visitor@example.com',
+        ], ['Accept' => 'application/json']);
+
+        $submit->assertCreated();
     }
 
     public function test_honeypot_field_in_snippet_is_skipped(): void
@@ -288,10 +326,14 @@ HTML;
         $response->assertSee('Your form is ready', false);
         $response->assertSee('Public submission URL', false);
         $response->assertSee('Embed snippet', false);
-        $response->assertSee(url('/api/submit/contact'), false);
-        // The browser path substitutes a placeholder so we don't leak
-        // the user's plaintext key in the HTML response.
-        $response->assertSee('__YOUR_FORMS_KEY__', false);
+
+        // The success page points at the legacy /api/forms/{slug}
+        // endpoint (the submission target) and embeds the per-form
+        // api_key in the snippet. The forms-agent user-key (the high-
+        // privilege key used to authenticate this request) is NOT
+        // exposed in the rendered HTML.
+        $response->assertSee(url('/api/forms/contact'), false);
+        $response->assertDontSee(url('/api/submit/contact'), false);
         $response->assertDontSee($plain, false);
     }
 

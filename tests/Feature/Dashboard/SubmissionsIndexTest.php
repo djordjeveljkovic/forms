@@ -18,15 +18,17 @@ class SubmissionsIndexTest extends TestCase
 
     public function test_page_is_displayed(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
         $this->get(route('dashboard.submissions.index'))->assertOk();
     }
 
     public function test_submissions_listing_shows_data(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create(['name' => 'Contact']);
+        $form = Form::factory()->ownedBy($user)->create(['name' => 'Contact']);
         FormSubmission::factory()->for($form)->create([
             'submission_data' => ['name' => 'Jane', 'email' => 'jane@example.com'],
         ]);
@@ -38,10 +40,11 @@ class SubmissionsIndexTest extends TestCase
 
     public function test_filter_by_form(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $contact = Form::factory()->create(['name' => 'ContactForm']);
-        $newsletter = Form::factory()->create(['name' => 'NewsletterForm']);
+        $contact = Form::factory()->ownedBy($user)->create(['name' => 'ContactForm']);
+        $newsletter = Form::factory()->ownedBy($user)->create(['name' => 'NewsletterForm']);
 
         FormSubmission::factory()->for($contact)->create();
         FormSubmission::factory()->for($newsletter)->create();
@@ -54,8 +57,9 @@ class SubmissionsIndexTest extends TestCase
 
     public function test_filter_by_status(): void
     {
-        $this->actingAs(User::factory()->create());
-        $form = Form::factory()->create();
+        $user = User::factory()->create();
+        $this->actingAs($user);
+        $form = Form::factory()->ownedBy($user)->create();
 
         FormSubmission::factory()->for($form)->create();
         FormSubmission::factory()->for($form)->read()->create();
@@ -67,9 +71,10 @@ class SubmissionsIndexTest extends TestCase
 
     public function test_filter_by_delivery_status(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
 
-        $form = Form::factory()->create();
+        $form = Form::factory()->ownedBy($user)->create();
         $sent = FormSubmission::factory()->for($form)->create();
         $failed = FormSubmission::factory()->for($form)->create();
 
@@ -83,8 +88,9 @@ class SubmissionsIndexTest extends TestCase
 
     public function test_mark_read(): void
     {
-        $this->actingAs(User::factory()->create());
-        $submission = FormSubmission::factory()->create();
+        $user = User::factory()->create();
+        $this->actingAs($user);
+        $submission = FormSubmission::factory()->forFormOwnedBy($user)->create();
 
         Livewire::test(SubmissionsIndex::class)
             ->call('markRead', $submission->id);
@@ -95,8 +101,9 @@ class SubmissionsIndexTest extends TestCase
 
     public function test_mark_spam(): void
     {
-        $this->actingAs(User::factory()->create());
-        $submission = FormSubmission::factory()->create();
+        $user = User::factory()->create();
+        $this->actingAs($user);
+        $submission = FormSubmission::factory()->forFormOwnedBy($user)->create();
 
         Livewire::test(SubmissionsIndex::class)
             ->call('markSpam', $submission->id);
@@ -106,8 +113,9 @@ class SubmissionsIndexTest extends TestCase
 
     public function test_clear_filters(): void
     {
-        $this->actingAs(User::factory()->create());
-        $form = Form::factory()->create();
+        $user = User::factory()->create();
+        $this->actingAs($user);
+        $form = Form::factory()->ownedBy($user)->create();
 
         Livewire::test(SubmissionsIndex::class)
             ->set('formFilter', $form->slug)

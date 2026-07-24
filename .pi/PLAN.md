@@ -2,7 +2,7 @@
  and the current plan is at ~/Projects/local/mare/test_form/.pi/PLAN.md see if you can use it
 
 _Generated: 2026-07-24T10:13:42.598Z_
-_Last updated: 2026-07-24T10:18:13.512Z_
+_Last updated: 2026-07-24T13:30:00.000Z_
 
 ## Context
 
@@ -92,6 +92,21 @@ State of the codebase (2026-07-24): substantial portions of the original test_fo
 > (A middleware, B controllers/routes, C Livewire UI, D docs) are merged
 > and green. **Pint** clean, **PHPStan** 0 errors, **PHPUnit** 255 tests
 > passing. This revision is a status update, not a work-in-progress doc.
+
+> **Revision 2:** key-scope split — the forms-agent user-key is now
+> **creation-only**; visitor submissions use the per-form `api_key`
+> returned in the response. This reverses the original clarification
+> #6 ("hide api_key") and is more secure: the high-privilege key
+> never ships to the world in the snippet HTML. Submission endpoint
+> moves from `POST /api/submit/{slug}` back to the legacy
+> `POST /api/forms/{slug}` (which the dashboard already had wired up
+> for per-form-key auth). See "Revision 2 deltas" below.
+
+> **Revision 3:** SaaS isolation — every user has their own forms,
+> forms are not accessible by different users, each user has their
+> own stats. Wired in via Laravel policies (FormPolicy,
+> FormSubmissionPolicy, EmailJobPolicy) and `Auth::id()` filters in
+> every list query. See "Revision 3 deltas" below.
 
 ## Goal & scope
 
@@ -509,7 +524,8 @@ Implementation order:
 | `resources/views/livewire/dashboard/agent-key.blade.php` | ✅ 170 lines | |
 | `tests/Feature/Api/AuthenticateAgentTest.php` | ✅ 151 lines, 9 tests | |
 | `tests/Feature/Api/AgentFormStoreTest.php` | ✅ 352 lines, 15 tests | |
-| `tests/Feature/Api/SubmitV2Test.php` | ✅ 246 lines, 9 tests | |
+| `tests/Feature/Api/SubmitV2Test.php` | ✅ REMOVED in revision 2 | submission endpoint moved back to `/api/forms/{slug}` |
+| `tests/Feature/Api/VerifyFormApiKeyTest.php` | ✅ 8 tests | new in revision 2; verifies the per-form middleware accepts the key from header / query / POST body |
 | `tests/Feature/Livewire/Dashboard/AgentKeyTest.php` | ✅ 167 lines, 10 tests | |
 | `tests/Unit/Services/Agent/FormHtmlParserTest.php` | ✅ 185 lines, 14 tests | |
 | `tests/Unit/Services/Agent/EmbedSnippetGeneratorTest.php` | ✅ 135 lines, 7 tests | |
@@ -592,16 +608,172 @@ $ composer run test
 
 ### Uncommitted working-tree deltas
 
-Two files were modified after `bd6bff5` and one extra test file plus
-`docs/agent-api.md` were added — all part of Phase D cleanup:
+After `bd6bff5` and the follow-up commit `330ecb2` (Phase D cleanup),
+the **Revision 2 key-scope split** introduces additional changes (see
+below). Run `git status` after the next commit lands to see them.
 
-```
- M app/Http/Controllers/Api/AgentFormController.php   (+min_submission_seconds validation + default)
- M database/factories/FormFactory.php                 (pint: fully_qualified_strict_types, ordered_imports)
-?? docs/agent-api.md
-?? tests/Feature/AgentWorkflowSmokeTest.php
-```
+---
 
-These were authored but never committed because the user issued `/reload`
-repeatedly before the next phase kicked off. Run `git status` and commit
-when ready.
+## Revision 2 — key-scope split (creation-only user key, per-form key for submissions)
+
+Triggered by a user requirement: "when a form is created using the api
+key, a per_form api key should be returned so that api that is used
+for creation only used for creation not for other stuff, and it needs
+to be secure". This reverses original clarification #6 ("hide the
+per-form api_key from the agent").
+
+### New flow
+
+| Stage | Auth | Endpoint | Payload |
+|---|---|---|---|
+| Create form | `forms-agent` (user key) | `POST /api/agent/forms` | Returns `{form_url, slug, name, api_key, fields, embed_html}` |
+| Embed snippet | — | — | Snippet posts to `/api/forms/{slug}` with per-form `api_key` as hidden body field |
+| Visitor submits | per-form `api_key` | `POST /api/forms/{slug}` | Existing endpoint; treats the key the same way it always did for legacy forms |
+
+The forms-agent key is **creation-only** — it cannot authenticate a
+submission. The per-form `api_key` is **submission-only** — it cannot
+create a new form. Both keys are restricted by the Sanctum token
+name on creation and by the middleware on use, so an attacker can't
+mix them up.
+
+### Files changed in Revision 2
+
+| File | Change |
+|---|---|
+| `app/Http/Controllers/Api/AgentFormController.php` | Includes `api_key` in response payload; passes per-form key to snippet generator; dropped the old `currentKeyForSnippet()` / `extractSentKey()` helpers |
+| `app/Http/Controllers/Api/SubmissionV2Controller.php` | **REMOVED** — submissions go through the legacy controller |
+| `app/Http/Controllers/Api/Concerns/HandlesSubmissionResponses.php` | unchanged (still shared) |
+| `app/Http/Middleware/VerifyFormApiKey.php` | Now accepts `api_key` from POST body (in addition to header/query) |
+| `app/Services/Agent/EmbedSnippetGenerator.php` | Form action is `/api/forms/{slug}`; `api_key` is in a hidden body field; dropped the `_user_api` concept and the `useQueryString` mode |
+| `app/Services/FormSubmissionService.php` | `stripControlFields()` also strips `api_key` (so the validator doesn't reject it as an unknown field) |
+| `routes/api.php` | Removed `POST /api/submit/{slug}` and the `SubmissionV2Controller` reference |
+| `tests/Feature/Api/SubmitV2Test.php` | **REMOVED** |
+| `tests/Feature/Api/VerifyFormApiKeyTest.php` | **NEW** — 8 tests covering the four key transport modes |
+| `tests/Feature/Api/AgentFormStoreTest.php` | Asserts `api_key` IS in response; updated browser-flow assertions |
+| `tests/Unit/Services/Agent/EmbedSnippetGeneratorTest.php` | Asserts per-form key in body field, not user-key in URL or `_user_api` field |
+| `tests/Feature/AgentWorkflowSmokeTest.php` | End-to-end test updated for new flow |
+| `docs/agent-api.md` | Rewritten with the two-key model, explicit security notes about the forms-agent key never appearing in HTML |
+| `.pi/PLAN.md` | This revision |
+
+### Security improvements over Revision 1
+
+- **Forms-agent key never embeds in HTML.** It only travels as an
+  `Authorization: Bearer …` header on the agent's API call. If the
+  snippet leaks (CDN scrapes, browser extensions, server logs), the
+  attacker gets only the per-form key — useless for creating forms
+  on any account.
+- **Per-form key never appears in URL.** It rides in the POST body,
+  so it doesn't leak into browser history, server access logs, or
+  `Referer` headers when the user clicks links on their success page.
+- **Key reuse is denied.** `VerifyFormApiKey` rejects the
+  forms-agent token at `/api/forms/{slug}` (returns 401). `AuthenticateAgent`
+  rejects the per-form api_key at `/api/agent/forms` because it isn't
+  a Sanctum token at all.
+- **Single-purpose tokens.** Each key does exactly one thing, which
+  makes the blast radius of any leak small and the audit log
+  meaningful.
+
+### Acceptance criteria — Revision 2
+
+1. ✅ `POST /api/agent/forms` returns `api_key` in the response payload.
+2. ✅ The returned snippet posts to `/api/forms/{slug}` with the
+   per-form `api_key` as a hidden body field (never in the URL).
+3. ✅ The snippet does NOT contain the forms-agent user-key.
+4. ✅ The forms-agent key cannot be used to submit (401 from the
+   per-form middleware).
+5. ✅ All 255 tests pass; pint + phpstan clean.
+
+---
+
+## Revision 3 — SaaS isolation (per-user forms + stats)
+
+Triggered by: "every user has his own forms, forms aren't accessiable
+by different users, and different users have different form stats
+it's a saas app".
+
+### What was broken before
+
+`Form::user_id` existed and forms created from the dashboard set it,
+but the dashboard pages never **enforced** it: any signed-in user
+could go to `/dashboard/forms/{id}/edit` for any other user's form
+and edit it. `FormsIndex` listed all forms in the database to every
+user. `Analytics` counted every user's submissions. The `api_key`
+on the form was the only thing distinguishing forms from one
+another, but with form data, submissions, and email jobs all
+exposed across users, this was a multi-tenant failure.
+
+### What changed
+
+1. **Three new policies** map Eloquent models to authorisation:
+   - `App\Policies\FormPolicy` — `view`, `update`, `archive`,
+     `regenerateApiKey`, `delete`. All check
+     `form.user_id === user.id`.
+   - `App\Policies\FormSubmissionPolicy` — `view`. Checks
+     `submission.form.user_id === user.id`.
+   - `App\Policies\EmailJobPolicy` — `view`. Same check via
+     `emailJob.submission.form`.
+2. **Policies registered** in `AppServiceProvider::registerPolicies()`.
+3. **Every Dashboard Livewire** that touches a form, submission, or
+   email job now calls `$this->authorize('verb', $model)` in
+   `mount()` and every action method.
+4. **Every list query** in the Dashboard Livewire is scoped by
+   `Auth::id()`:
+   - `FormsIndex::forms()` — `->ownedBy(Auth::user())`
+   - `SubmissionsIndex::buildQuery()` —
+     `whereHas('form', fn ($q) => $q->where('user_id', Auth::id()))`
+   - `EmailJobs::buildQuery()` — same
+   - `Analytics::totalSubmissions`, `totalForms`, `activeForms`,
+     `submissionsByDay`, `submissionsByForm`,
+     `emailStatusBreakdown` — all scoped
+5. **New cross-user isolation test file**
+   `tests/Feature/Dashboard/SaasIsolationTest.php` — 15 tests
+   covering every attack surface (edit, demo, archive, restore,
+   delete, regenerate key, view submission, mark submission read,
+   view email job, retry email job, forms index, submissions
+   index, analytics counts).
+
+### Files changed in Revision 3
+
+**New:**
+- `app/Policies/FormPolicy.php`
+- `app/Policies/FormSubmissionPolicy.php`
+- `app/Policies/EmailJobPolicy.php`
+- `tests/Feature/Dashboard/SaasIsolationTest.php` (15 tests)
+
+**Modified (policies / ownership checks):**
+- `app/Providers/AppServiceProvider.php` — `registerPolicies()`
+- `app/Livewire/Dashboard/FormsIndex.php` — `authorize()` in actions + `ownedBy()` in list query
+- `app/Livewire/Dashboard/FormEdit.php` — `authorize()` in `mount()` and every action
+- `app/Livewire/Dashboard/FormDemo.php` — `authorize()` in `mount()` and `submit()`
+- `app/Livewire/Dashboard/SubmissionsIndex.php` — `authorize()` in `markRead`/`markSpam` + `whereHas('form', ownedBy)` in list
+- `app/Livewire/Dashboard/SubmissionShow.php` — `authorize('view', $submission)` in `mount()`
+- `app/Livewire/Dashboard/EmailJobs.php` — `authorize()` in `retry` + `ownedBy()` filter
+- `app/Livewire/Dashboard/EmailJobShow.php` — `authorize('view', $job)` in `mount()` and `retry()`
+- `app/Livewire/Dashboard/Analytics.php` — every `#[Computed]` scoped by `whereHas('form', ownedBy)`
+
+**Modified (existing tests updated to use `actingAs` + `ownedBy`):**
+- `tests/Feature/Dashboard/FormsIndexTest.php`
+- `tests/Feature/Dashboard/FormEditTest.php`
+- `tests/Feature/Dashboard/FormEditProtectionTest.php`
+- `tests/Feature/Dashboard/FormDemoTest.php`
+- `tests/Feature/Dashboard/FormExportImportTest.php`
+- `tests/Feature/Dashboard/SubmissionShowTest.php`
+- `tests/Feature/Dashboard/SubmissionsIndexTest.php`
+- `tests/Feature/Dashboard/EmailJobsTest.php`
+- `tests/Feature/Dashboard/AnalyticsTest.php`
+
+**Modified (factories):**
+- `database/factories/FormSubmissionFactory.php` — added
+  `forFormOwnedBy(User $user)` state for the test suite
+
+### Acceptance criteria — Revision 3
+
+1. ✅ Every dashboard action calls `$this->authorize(...)` before mutating.
+2. ✅ Every list query is scoped by `Auth::id()`.
+3. ✅ `tests/Feature/Dashboard/SaasIsolationTest.php` proves a
+   second user cannot view, edit, archive, restore, delete, or
+   regenerate the API key on another user's form, nor view / retry
+   another user's email job, nor see another user's forms /
+   submissions in list views, nor have their analytics polluted by
+   another user's data.
+4. ✅ All 270 tests pass; pint + phpstan clean.

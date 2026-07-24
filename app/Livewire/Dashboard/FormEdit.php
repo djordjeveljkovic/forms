@@ -72,6 +72,10 @@ class FormEdit extends Component
      */
     public function mount(Form $form): void
     {
+        // SaaS isolation: only the form's owner may view/edit it.
+        // Throws AuthorizationException (rendered as 403) otherwise.
+        $this->authorize('update', $form);
+
         $this->form = $form;
         $this->name = $form->name;
         $this->description = (string) $form->description;
@@ -108,6 +112,8 @@ class FormEdit extends Component
      */
     public function save(): void
     {
+        $this->authorize('update', $this->form);
+
         $data = $this->validate($this->rules());
 
         $recipients = $this->resolveRecipients($data['recipientEmails'] ?? []);
@@ -183,6 +189,8 @@ class FormEdit extends Component
      */
     public function addRecipient(): void
     {
+        $this->authorize('update', $this->form);
+
         $this->recipientEmails[] = '';
     }
 
@@ -191,6 +199,8 @@ class FormEdit extends Component
      */
     public function removeRecipient(int $index): void
     {
+        $this->authorize('update', $this->form);
+
         unset($this->recipientEmails[$index]);
         $this->recipientEmails = array_values($this->recipientEmails);
 
@@ -204,6 +214,8 @@ class FormEdit extends Component
      */
     public function addField(): void
     {
+        $this->authorize('update', $this->form);
+
         $this->fields[] = $this->emptyFieldRow();
     }
 
@@ -212,6 +224,8 @@ class FormEdit extends Component
      */
     public function removeField(int $index): void
     {
+        $this->authorize('update', $this->form);
+
         unset($this->fields[$index]);
         $this->fields = array_values($this->fields);
     }
@@ -221,6 +235,8 @@ class FormEdit extends Component
      */
     public function moveField(int $index, string $direction): void
     {
+        $this->authorize('update', $this->form);
+
         if ($direction === 'up' && $index > 0) {
             [$this->fields[$index - 1], $this->fields[$index]] = [$this->fields[$index], $this->fields[$index - 1]];
         } elseif ($direction === 'down' && $index < count($this->fields) - 1) {
@@ -249,6 +265,8 @@ class FormEdit extends Component
      */
     public function regenerateApiKey(): void
     {
+        $this->authorize('regenerateApiKey', $this->form);
+
         $this->form->regenerateApiKey();
         $this->apiKey = $this->form->api_key;
         $this->audit('form.api_key.regenerated');
@@ -262,6 +280,8 @@ class FormEdit extends Component
      */
     public function exportJson(): StreamedResponse
     {
+        $this->authorize('view', $this->form);
+
         $payload = app(FormExporter::class)->export($this->form);
         $filename = 'form-'.$this->form->slug.'-'.now()->format('Y-m-d-His').'.json';
 
@@ -285,6 +305,8 @@ class FormEdit extends Component
      */
     public function delete(): void
     {
+        $this->authorize('delete', $this->form);
+
         $form = $this->form;
         $this->audit('form.deleted');
         $form->delete();

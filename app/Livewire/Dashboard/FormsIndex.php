@@ -5,6 +5,7 @@ namespace App\Livewire\Dashboard;
 use App\Models\AuditLog;
 use App\Models\Form;
 use Flux\Flux;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Auth;
@@ -42,10 +43,15 @@ class FormsIndex extends Component
 
     /**
      * Archive a form.
+     *
+     * Throws `AuthorizationException` (rendered as 403) if the
+     * authenticated user does not own the form.
      */
     public function archive(int $formId): void
     {
         $form = Form::query()->findOrFail($formId);
+        $this->authorize('archive', $form);
+
         $form->forceFill([
             'is_archived' => true,
             'archived_at' => now(),
@@ -62,6 +68,8 @@ class FormsIndex extends Component
     public function restore(int $formId): void
     {
         $form = Form::query()->findOrFail($formId);
+        $this->authorize('archive', $form);
+
         $form->forceFill([
             'is_archived' => false,
             'archived_at' => null,
@@ -78,6 +86,8 @@ class FormsIndex extends Component
     public function regenerateApiKey(int $formId): void
     {
         $form = Form::query()->findOrFail($formId);
+        $this->authorize('regenerateApiKey', $form);
+
         $newKey = $form->regenerateApiKey();
 
         $this->audit($form, 'form.api_key.regenerated');
@@ -88,7 +98,7 @@ class FormsIndex extends Component
     }
 
     /**
-     * The forms list.
+     * The forms list — scoped to the authenticated user.
      *
      * @return LengthAwarePaginator<int, Form>
      */
@@ -96,6 +106,7 @@ class FormsIndex extends Component
     public function forms(): LengthAwarePaginator
     {
         $query = Form::query()
+            ->ownedBy(Auth::user())
             ->withCount('submissions')
             ->when($this->search !== '', function ($q): void {
                 $q->where(function ($q): void {

@@ -4,6 +4,7 @@ namespace Tests\Feature\Dashboard;
 
 use App\Enums\SubmissionStatus;
 use App\Livewire\Dashboard\SubmissionShow;
+use App\Models\Form;
 use App\Models\FormSubmission;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -16,9 +17,12 @@ class SubmissionShowTest extends TestCase
 
     public function test_page_displays_submission(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
+        $form = Form::factory()->ownedBy($user)->create();
 
         $submission = FormSubmission::factory()->create([
+            'form_id' => $form->id,
             'submission_data' => ['name' => 'Jane', 'message' => 'Hello world'],
         ]);
 
@@ -27,9 +31,12 @@ class SubmissionShowTest extends TestCase
 
     public function test_mount_marks_submission_as_read(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
+        $form = Form::factory()->ownedBy($user)->create();
 
         $submission = FormSubmission::factory()->create([
+            'form_id' => $form->id,
             'status' => SubmissionStatus::Received->value,
         ]);
 
@@ -41,9 +48,13 @@ class SubmissionShowTest extends TestCase
 
     public function test_mark_spam(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
+        $form = Form::factory()->ownedBy($user)->create();
 
-        $submission = FormSubmission::factory()->create();
+        $submission = FormSubmission::factory()->create([
+            'form_id' => $form->id,
+        ]);
 
         Livewire::test(SubmissionShow::class, ['submission' => $submission])
             ->call('markSpam')
@@ -54,9 +65,13 @@ class SubmissionShowTest extends TestCase
 
     public function test_archive(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
+        $form = Form::factory()->ownedBy($user)->create();
 
-        $submission = FormSubmission::factory()->create();
+        $submission = FormSubmission::factory()->create([
+            'form_id' => $form->id,
+        ]);
 
         Livewire::test(SubmissionShow::class, ['submission' => $submission])
             ->call('archive')
@@ -67,9 +82,13 @@ class SubmissionShowTest extends TestCase
 
     public function test_delete(): void
     {
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $this->actingAs($user);
+        $form = Form::factory()->ownedBy($user)->create();
 
-        $submission = FormSubmission::factory()->create();
+        $submission = FormSubmission::factory()->create([
+            'form_id' => $form->id,
+        ]);
 
         Livewire::test(SubmissionShow::class, ['submission' => $submission])
             ->call('delete')
