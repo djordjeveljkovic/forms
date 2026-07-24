@@ -63,9 +63,13 @@ class FormPolicy
 
     /**
      * The owner check — single source of truth.
+     *
+     * Admins are allowed to do anything a regular user can do plus
+     * operate on resources they don't own, so the check short-circuits
+     * when the caller is an admin.
      */
     protected function isOwner(User $user, Form $form): bool
     {
-        return (int) $form->user_id === (int) $user->getKey();
+        return $user->isAdmin() || (int) $form->user_id === (int) $user->getKey();
     }
 }

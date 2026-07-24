@@ -5,6 +5,7 @@ namespace App\Livewire\Dashboard;
 use App\Enums\FormFieldType;
 use App\Models\AuditLog;
 use App\Models\Form;
+use App\Models\User;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
@@ -74,6 +75,17 @@ class FormCreate extends Component
     {
         $data = $this->validate($this->rules());
 
+        $user = Auth::user();
+
+        if ($user instanceof User && $user->hasReachedFormLimit()) {
+            $this->addError(
+                'name',
+                __('You have reached the form limit on your plan. Upgrade or delete an existing form.'),
+            );
+
+            return;
+        }
+
         $recipients = $this->resolveRecipients($data['recipientEmails'] ?? []);
 
         if (empty($recipients)) {
@@ -92,8 +104,9 @@ class FormCreate extends Component
         }
 
         try {
-            $form = DB::transaction(function () use ($data, $recipients, $allowed, $fieldsData): Form {
+            $form = DB::transaction(function () use ($data, $recipients, $allowed, $fieldsData, $user): Form {
                 $form = Form::query()->create([
+                    'user_id' => $user?->getKey(),
                     'name' => $data['name'],
                     'description' => $data['description'] ?: null,
                     'recipient_emails' => $recipients,

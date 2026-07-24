@@ -2,7 +2,7 @@
  and the current plan is at ~/Projects/local/mare/test_form/.pi/PLAN.md see if you can use it
 
 _Generated: 2026-07-24T10:13:42.598Z_
-_Last updated: 2026-07-24T13:30:00.000Z_
+_Last updated: 2026-07-24T14:13:45.554Z_
 
 ## Context
 
@@ -80,700 +80,575 @@ State of the codebase (2026-07-24): substantial portions of the original test_fo
 - Settings Livewire live in `app/Livewire/Settings/` and are mounted via `routes/settings.php`. The dashboard sidebar lives in `resources/views/layouts/app/sidebar.blade.php` and currently has a Settings item pointing at `profile.edit`.
 - SubmissionController has helper methods (`wantsHtmlResponse`, `extractSubmissionData`, `resolveRedirectUrl`) that the new SubmissionV2Controller should reuse (probably by extracting them to a small helper trait) so the existing endpoint stays consistent.
 
+### 2. 2026-07-24T10:48:11.329Z
 
-# Forms-app agent integration — implementation plan
+Investigated https://forms.buster.rs API. Findings:
 
-> **Source of truth:** this plan extends the more general draft at
-> `~/Projects/local/mare/test_form/.pi/PLAN.md` (clarifications 1–7).
-> Roughly half of that draft is already implemented in this repo; this
-> document focuses on the remaining work.
+- The site is a Laravel app (stack: Laravel + Livewire + Caddy), live at forms.buster.rs.
+- API key works: GET /api/user returns authenticated user "Test User" (test@example.com, id 1).
+- API routes discovered (auth required unless noted):
+  - GET /api/user — returns authenticated user
+  - GET /api/health — returns {"status":"ok","service":"forms-api"}
+  - GET /api/forms/{slug} — public form endpoint, but requires its own API key (NOT the user token). Returns "Invalid or missing API key" with the user token.
+- No documented form-creation endpoint exists. Tested POST /api/forms, /api/forms/contact, /api/forms/list, /api/workspaces, /api/v1/forms, /api/admin/forms, /api/dashboard, etc. — all 404 Route not found.
+- Only documentation-ish paths are /docs, /api/docs, /documentation, /api/documentation — all 404.
+- The site JS bundle is empty (0 bytes), so cannot extract client-side routes.
+- Public forms appear to be created via the web UI (/login → /register). The site has only Login/Register in the home page; no docs subdomain.
+- The forms use a different API key scheme: public form access seems to require a separate key (different from the user's personal token), since GET /api/forms/contact with the user token failed.
 
-> **Status:** ✅ **Shipped in `bd6bff5 latest changes`.** All four phases
-> (A middleware, B controllers/routes, C Livewire UI, D docs) are merged
-> and green. **Pint** clean, **PHPStan** 0 errors, **PHPUnit** 255 tests
-> passing. This revision is a status update, not a work-in-progress doc.
+Conclusion: The API does NOT expose a documented endpoint for creating forms via API key. The user's stated workflow (create form via API key + use it later) is not supported by any endpoint I could find or by the public docs on the site. The user needs to either:
+1. Point me to actual documentation (a link, PDF, repo).
+2. Confirm whether they're aware that forms on this platform are created via web UI, not API.
+3. Provide a different site or service (e.g., they may be confusing forms.buster.rs with another service like Tally, Typeform, Formspree, etc.).
 
-> **Revision 2:** key-scope split — the forms-agent user-key is now
-> **creation-only**; visitor submissions use the per-form `api_key`
-> returned in the response. This reverses the original clarification
-> #6 ("hide api_key") and is more secure: the high-privilege key
-> never ships to the world in the snippet HTML. Submission endpoint
-> moves from `POST /api/submit/{slug}` back to the legacy
-> `POST /api/forms/{slug}` (which the dashboard already had wired up
-> for per-form-key auth). See "Revision 2 deltas" below.
 
-> **Revision 3:** SaaS isolation — every user has their own forms,
-> forms are not accessible by different users, each user has their
-> own stats. Wired in via Laravel policies (FormPolicy,
-> FormSubmissionPolicy, EmailJobPolicy) and `Auth::id()` filters in
-> every list query. See "Revision 3 deltas" below.
+# Admin Panel & Subscription Plans
 
-## Goal & scope
+## Overview
 
-A user signs in to **forms-app** (Laravel 13 + Livewire + Fortify, this
-repo), generates a personal **forms-agent key** (`forms_sk_…`,
-Sanctum-backed), hands that key to any external AI agent, and the agent
-can create forms on the user's behalf by POSTing a raw HTML snippet.
-The agent receives a public submission URL plus a copy-pasteable HTML
-snippet it drops onto the user's static site; visitors who fill out the
-snippet land in the existing `form_submissions` table and trigger the
-existing email pipeline.
+Add an admin role + a self-contained `/admin` section to the existing
+Laravel + Livewire + Flux UI forms app. Admins can do everything a
+regular user can, **plus** view global analytics, manage users
+(CRUD), manage subscription plans, and impersonate users. Permissions
+are gated by [Spatie Laravel Permission](https://spatie.be/docs/laravel-permission)
+so the role/permission model is extensible later.
 
-### In scope
+Subscription plans are first-class entities: a `plans` table describes
+what each plan offers (limits, price, features), and a `subscriptions`
+table links a user to a plan with status/dates. The `User` model gains
+a `subscription()` relation and a `plan()` convenience accessor.
 
-1. **AuthenticateAgent middleware** — Bearer header / `?user_api=` query
-   / `_user_api` body field → resolve a `forms-agent` Sanctum token →
-   attach the owning `User` to the request.
-2. **`POST /api/agent/forms`** — parse the supplied HTML, persist the
-   form under the calling user, return `{form_url, slug, name, fields,
-   embed_html}` (no per-form api_key).
-3. **`POST /api/submit/{slug}`** — user-key-authenticated submission
-   endpoint. Reuses `FormSubmissionService` for spam/validation/storage.
-4. **`GET /llms.txt` + `GET /api/agent/docs`** — AI-discoverable docs.
-5. **`/dashboard/agent-key`** — Livewire page (Forms sidebar group) for
-   generating / revoking the personal forms-agent token.
-6. Inline success view for browser-form `POST /api/agent/forms`
-   (copy-to-clipboard buttons for URL + snippet).
-7. Tests for everything new.
-
-### Out of scope
-
-- Deprecating the legacy per-form `api_key` on `/api/forms/{slug}`.
-- Changing the spam / email pipeline.
-- Changing any existing Livewire dashboard pages.
-
-### Clarified today
-
-- **Dashboard placement:** `Forms sidebar group → /dashboard/agent-key`
-  (decision A from the question).
+The regular user dashboard is untouched. The admin UI lives entirely
+under `/admin/*` with a dedicated layout and sidebar.
 
 ---
 
-## Architecture
+## Decisions (locked from clarify phase)
 
-```
-┌──────────────┐  POST /api/agent/forms   ┌─────────────────────────┐
-│  AI agent    │  Authorization: Bearer   │  forms-app              │
-│  (curl/fetch)│  forms_sk_…              │  (Laravel 13, this repo)│
-│              │  html=…&form_name=…      │                         │
-└──────────────┘ ◄─────────────────────── └─────────────────────────┘
-                  JSON / inline HTML page with
-                  {form_url, slug, fields, embed_html}
-                                  │
-                                  ▼  user pastes snippet on their site
-                            ┌──────────────────────┐
-                            │ User's static site   │
-                            │  <form action=       │
-                            │   /api/submit/contact>│
-                            │  <input _user_api …> │
-                            │  …fields… </form>    │
-                            └──────────────────────┘
-                                  │
-                                  ▼ POST (browser)
-                            ┌──────────────────────┐
-                            │ forms-app            │
-                            │ _user_api → user     │
-                            │ FormSubmissionService│
-                            └──────────────────────┘
+| Question | Decision |
+|---|---|
+| Plan model | Full `plans` + `subscriptions` tables |
+| Permissions | `spatie/laravel-permission` package |
+| Admin actions | Create, edit, delete users · toggle admin · assign plan · disable 2FA / force password reset · impersonate |
+| UI structure | Separate `/admin` section with own layout |
+
+---
+
+## 1. New dependency
+
+Add `spatie/laravel-permission` (v6 supports Laravel 12/13).
+Publishes its own migrations for `roles`, `permissions`,
+`model_has_roles`, `model_has_permissions`, `role_has_permissions`.
+
+```bash
+composer require spatie/laravel-permission --no-interaction
+php artisan vendor:publish --provider="Spatie\Permission\PermissionServiceProvider" --tag=permission-migrations
 ```
 
 ---
 
-## Implementation phases
+## 2. Database migrations
 
-### Phase A — AuthenticateAgent middleware
+Naming follows existing `2026_07_24_HHMMSS_description.php` style.
 
-**A.1 `app/Http/Middleware/AuthenticateAgent.php`**
+### `2026_07_24_210000_create_plans_table.php`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigint pk | |
+| `name` | string | e.g. "Free", "Pro" |
+| `slug` | string unique | "free", "pro" |
+| `description` | text nullable | |
+| `price_cents` | unsigned int default 0 | |
+| `currency` | string(3) default 'USD' | |
+| `interval` | string default 'monthly' | enum: monthly, yearly, one_time |
+| `max_forms` | int nullable | null = unlimited |
+| `max_submissions_per_month` | int nullable | null = unlimited |
+| `features` | json nullable | arbitrary list of feature flags |
+| `is_active` | bool default true | |
+| `is_default` | bool default false | only one row should be true; seeded enforced |
+| `sort` | int default 0 | display order |
+| timestamps | | |
+
+### `2026_07_24_210001_create_subscriptions_table.php`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigint pk | |
+| `user_id` | foreignId constrained nullOnDelete | |
+| `plan_id` | foreignId constrained restrictOnDelete | |
+| `status` | string default 'active' | enum: active, trialing, cancelled, expired, past_due |
+| `starts_at` | timestamp | |
+| `ends_at` | timestamp nullable | null = no pre-set end |
+| `trial_ends_at` | timestamp nullable | |
+| `cancelled_at` | timestamp nullable | |
+| `metadata` | json nullable | |
+| timestamps | | |
+| index | (`user_id`, `status`) | |
+| index | (`plan_id`) | |
+
+Note: allow multiple historical rows per user (no DB-level uniqueness)
+so admins can audit plan changes. Active subscription is resolved via
+a `Subscription::active()` scope.
+
+### Spatie migrations
+
+Auto-published by the package, no custom changes needed.
+
+---
+
+## 3. Models
+
+### `app/Models/Plan.php` (new)
 
 ```php
-class AuthenticateAgent
-{
-    public function handle(Request $request, Closure $next): Response
-    {
-        $provided = $this->extractKey($request);
+#[Fillable([name, slug, description, price_cents, currency, interval,
+            max_forms, max_submissions_per_month, features,
+            is_active, is_default, sort])]
+class Plan extends Model {
+    use HasFactory;
 
-        if ($provided === null) {
-            return $this->unauth($request, 'Missing forms key.');
-        }
-
-        $token = PersonalAccessToken::findToken($provided);
-        if ($token === null || $token->name !== User::FORMS_AGENT_TOKEN_NAME) {
-            return $this->unauth($request, 'Invalid or missing forms key.');
-        }
-
-        $user = $token->tokenable;
-        if (! $user instanceof User) {
-            return $this->unauth($request, 'Invalid or missing forms key.');
-        }
-
-        $request->setUserResolver(fn () => $user);
-
-        $token->forceFill(['last_used_at' => now()])->saveQuietly();
-
-        return $next($request);
+    protected function casts(): array {
+        return [
+            'price_cents' => 'integer',
+            'max_forms' => 'integer',
+            'max_submissions_per_month' => 'integer',
+            'features' => 'array',
+            'is_active' => 'boolean',
+            'is_default' => 'boolean',
+            'sort' => 'integer',
+        ];
     }
-    // extractKey() reads Authorization Bearer / ?user_api= / body _user_api
-    // unauth() returns 401 JSON for api/* and aborts otherwise.
+
+    public function subscriptions(): HasMany { return $this->hasMany(Subscription::class); }
+    public function formattedPrice(): string { ... }
+    public function hasUnlimitedForms(): bool { return $this->max_forms === null; }
+    public function hasUnlimitedSubmissions(): bool { return $this->max_submissions_per_month === null; }
+    public function scopeActive(Builder $q): Builder { ... }
 }
 ```
 
-**A.2 `bootstrap/app.php`** — register the alias:
+Factory `PlanFactory` with `free()`, `pro()`, `enterprise()` states.
+
+### `app/Models/Subscription.php` (new)
 
 ```php
-$middleware->alias([
-    'form.key' => VerifyFormApiKey::class,
-    'agent.key' => AuthenticateAgent::class,
-]);
+#[Fillable([user_id, plan_id, status, starts_at, ends_at, trial_ends_at, cancelled_at, metadata])]
+class Subscription extends Model {
+    use HasFactory;
+
+    public const STATUS_ACTIVE = 'active';
+    public const STATUS_TRIALING = 'trialing';
+    public const STATUS_CANCELLED = 'cancelled';
+    public const STATUS_EXPIRED = 'expired';
+    public const STATUS_PAST_DUE = 'past_due';
+
+    public function user(): BelongsTo { return $this->belongsTo(User::class); }
+    public function plan(): BelongsTo { return $this->belongsTo(Plan::class); }
+    public function isActive(): bool { ... }
+    public function scopeActive(Builder $q): Builder { ... }
+}
 ```
 
-**A.3 Tests** — `tests/Feature/Api/AuthenticateAgentTest.php`:
+### `app/Models/User.php` (modify)
 
-- Missing header → 401 JSON.
-- Wrong scheme (`Token …`) → 401.
-- Valid Bearer → user resolved, request continues.
-- Valid `?user_api=` → user resolved.
-- Valid `_user_api` body field → user resolved.
-- Token whose `name` is **not** `forms-agent` → 401.
-- Token for a deleted user → 401.
+- Add `use Spatie\Permission\Traits\HasRoles;`
+- Add relations:
+  - `subscriptions(): HasMany`
+  - `activeSubscription(): HasOne` (active scope)
+  - `plan(): Attribute` (computed from activeSubscription, falls back to default plan)
+- Add helpers:
+  - `isAdmin(): bool` — short for `$this->hasRole('admin')`
+  - `currentPlan(): ?Plan`
+  - `onPlan(string $slug): bool`
+  - `hasReachedFormLimit(): bool` — checks against plan
+
+### `app/Models/Form.php` (modify)
+
+- Add `scopeActiveThisMonth(Builder $q): Builder` for plan-limit checks
+- Add `monthlySubmissionsCount(): int` computed
+
+(This stays close to the existing scope patterns.)
 
 ---
 
-### Phase B — Agent-facing controller + routes
+## 4. Authorization (Spatie)
 
-**B.1 `app/Http/Controllers/Api/AgentFormController.php`**
+### Roles
 
-- Validates `form_name` (regex `^[a-zA-Z0-9 _\-]+$`, max 80) + `html`
-  (max 65 KB) + optional `description`, `recipient_emails`, `from_*`,
-  `success_redirect_url`, `success_message`.
-- 409 on per-user slug conflict.
-- 422 on parser RuntimeException.
-- Transaction: create `Form`, then `FormField` rows in document order.
-- Returns JSON `{form_url, slug, name, fields, embed_html}` for agents,
-  or renders `resources/views/agent/form-created.blade.php` for browsers.
+- `admin` — full access
+- `user` — default; no special permissions minted (regular users
+  authorize via existing FormPolicy / EmailJobPolicy / FormSubmissionPolicy)
 
-**B.2 `app/Http/Controllers/Api/SubmissionV2Controller.php`**
+### Permissions
 
-Thin wrapper around a `SubmissionV2Pipeline` that:
+Defined in `app/Providers/PermissionServiceProvider.php` (new) and
+seeded by `RolesAndPermissionsSeeder`:
 
-- Verifies `$form->user_id === $request->user()->id` (else 403).
-- Calls `FormSubmissionService::submit()` with the same
-  `extractSubmissionData` / `resolveRedirectUrl` / `wantsHtmlResponse`
-  helpers the legacy `SubmissionController` uses (now extracted to a
-  trait).
+| Permission | Description |
+|---|---|
+| `view-admin-panel` | Enter `/admin/*` |
+| `view-users` | See users index |
+| `create-users` | Create new users |
+| `edit-users` | Edit user profile |
+| `delete-users` | Delete users |
+| `assign-plans` | Assign/change plans |
+| `impersonate-users` | Start impersonation |
+| `view-global-analytics` | See all-users analytics |
+| `reset-2fa` | Disable 2FA on a user |
+| `manage-plans` | Create/edit/delete plans |
 
-**B.3 `app/Http/Controllers/Api/Concerns/HandlesSubmissionResponses.php`**
+Admin role gets all permissions via `$role->givePermissionTo($all)`.
 
-Extract `extractSubmissionData`, `resolveRedirectUrl`, `wantsHtmlResponse`,
-`redirectWithError`, and `originIsForbidden` from
-`SubmissionController` into a trait used by **both** controllers. This
-keeps behaviour identical and shrinks the legacy controller.
+### Middleware
 
-**B.4 Routes — `routes/api.php` additions**
+- `app/Http/Middleware/EnsureUserIsAdmin.php` — alias `admin`,
+  delegates to `auth()->user()->can('view-admin-panel')`. Mounted on
+  every `/admin/*` route.
+
+### `AppServiceProvider::registerPolicies()`
+
+Existing policies get an admin bypass: each `*Policy` checks
+`isAdmin()` first, then falls back to the existing owner check.
+This is the least-intrusive way to give admins full access without
+rewriting every Livewire mount.
 
 ```php
-Route::get('/llms.txt', [AgentDocsController::class, 'llms'])
-    ->name('api.agent.llms');
-
-Route::get('/api/agent/docs', [AgentDocsController::class, 'docs'])
-    ->name('api.agent.docs');
-
-Route::middleware(['agent.key'])->group(function (): void {
-    Route::post('/api/agent/forms', [AgentFormController::class, 'store'])
-        ->name('api.agent.forms.store');
-
-    Route::post('/api/submit/{form:slug}', [SubmissionV2Controller::class, 'store'])
-        ->middleware('throttle:forms')
-        ->name('api.submit.store');
-});
+// e.g. FormPolicy::isOwner
+protected function isOwner(User $user, Form $form): bool
+{
+    return $user->isAdmin() || (int) $form->user_id === (int) $user->getKey();
+}
 ```
 
-**B.5 `app/Http/Controllers/Api/AgentDocsController.php`**
+---
 
-- `llms()` — cached Markdown (`Cache::remember('agent-llms', 3600, …)`)
-  documenting conventions + each endpoint with signature, auth, example
-  curl, example response.
-- `docs()` — same content as JSON `{ content: "..." }`.
+## 5. Routes
 
-**B.6 `resources/views/agent/form-created.blade.php`**
+New `routes/admin.php`:
 
-Minimal Flux-styled page: heading + three cards (URL with copy button,
-embed snippet in `<pre><code>` with copy button, next-step links to
-dashboard pages). Extends `components.layouts.app`.
+```php
+Route::middleware(['auth', 'verified', 'admin'])
+    ->prefix('admin')
+    ->name('admin.')
+    ->group(function (): void {
+        Route::get('/', AdminDashboard::class)->name('dashboard');
+        Route::livewire('/users', UsersIndex::class)->name('users.index');
+        Route::livewire('/users/create', UserCreate::class)->name('users.create');
+        Route::livewire('/users/{user}', UserShow::class)->name('users.show');
+        Route::livewire('/users/{user}/edit', UserEdit::class)->name('users.edit');
+        Route::livewire('/plans', PlansIndex::class)->name('plans.index');
+        Route::livewire('/plans/create', PlanCreate::class)->name('plans.create');
+        Route::livewire('/plans/{plan}/edit', PlanEdit::class)->name('plans.edit');
 
-**B.7 Feature tests**
+        // Impersonation (HTTP POSTs, not Livewire)
+        Route::post('/users/{user}/impersonate', [ImpersonationController::class, 'start'])
+            ->name('users.impersonate.start');
+        Route::post('/impersonate/stop', [ImpersonationController::class, 'stop'])
+            ->name('users.impersonate.stop');
+    });
+```
 
-`tests/Feature/Api/AgentFormStoreTest.php`:
-
-- Auth: 401 paths (missing key, wrong scheme, non-`forms-agent` token).
-- Validation: missing `html` / `form_name`, oversized html.
-- Conflict: same user → 409; different users → 201 each.
-- HTML parsing: text + email + textarea + select → 4 fields persisted
-  with correct types. Honeypot skipped.
-- Response shape (curl): JSON with `form_url`, `slug`, `fields`,
-  `embed_html`; no `api_key`.
-- Response shape (browser): HTML page with copy buttons.
-
-`tests/Feature/Api/SubmitV2Test.php`:
-
-- Happy path via `?user_api=` → 201/302.
-- Happy path via `_user_api` body → 201/302.
-- Mismatched owner → 403.
-- Missing key → 401.
-- Honeypot in payload → blocked.
-- Submission row + email job created.
-
-`tests/Unit/Services/Agent/FormHtmlParserTest.php`:
-
-- Plain input, email, textarea, select with options.
-- `<label for="x">` lookup.
-- Honeypot container exclusion.
-- `_`-prefixed control field skip; `cf-turnstile-response` skip.
-- Empty snippet → RuntimeException.
-- Duplicate names collapse to first.
-
-`tests/Unit/Services/Agent/EmbedSnippetGeneratorTest.php`:
-
-- Snippet contains `action="/api/submit/{slug}"` + hidden `_user_api`.
-- All active fields rendered.
-- Honeypot included.
-- `_timestamp` included when `min_submission_seconds > 0`.
-- `useQueryString=true` puts key in URL.
+Required in `routes/web.php` via `require __DIR__.'/admin.php';`.
 
 ---
 
-### Phase C — User-facing token management
+## 6. Livewire components
 
-**C.1 `app/Livewire/Dashboard/AgentKey.php`** (Livewire 4, Flux UI)
+All under `app/Livewire/Admin/`. Follow existing patterns:
+`#[Title('...')]`, `#[Layout('layouts.admin')]`, `WithPagination`,
+`Flux::toast`, `Flux::modal`, `audit()` log helper.
 
-- Status row: "No key generated" / "Active key created <date>".
-- `generate()`:
-  - Delete existing `forms-agent` tokens for the user.
-  - Create new via `$user->createToken(User::FORMS_AGENT_TOKEN_NAME, ['*'])`
-    (no expiry).
-  - Capture plaintext from `$newToken->plainTextToken`.
-  - Store in `#[Locked] public ?string $revealedKey = null`.
-  - Open modal with copy button.
-  - Write `AuditLog` row (`event='forms-agent.key.generated'`).
-- `closeRevealModal()` clears `$revealedKey`.
-- `revoke()`: delete the token, write
-  `AuditLog` row (`event='forms-agent.key.revoked'`), close modal.
+### `AdminDashboard.php`
+Global KPIs: total users, total forms, total submissions (range),
+signups per day (chart), active subscriptions, MRR (sum of active
+subscription plan prices), recent admin actions.
 
-**C.2 `resources/views/livewire/dashboard/agent-key.blade.php`**
+### `UsersIndex.php`
+Paginated table with filters: search (name/email), role filter
+(admin/user), plan filter, "verified only" toggle. Row actions:
+view, edit, delete (with confirm modal), impersonate (with reason
+modal + audit log).
 
-- Status card with `flux:button` for generate/revoke.
-- `flux:modal` for the one-time plaintext key view.
-- Help text about what the key does and revoking breaking in-flight
-  agents.
+### `UserCreate.php`
+Form with name, email, password (auto-generate option), role
+(checkbox for admin), plan (dropdown). Triggers Fortify
+`CreateNewUser` action; then assigns role + creates default
+Subscription row.
 
-**C.3 Routes**
+### `UserEdit.php`
+Edit name, email (re-verify if changed), password (optional reset),
+role checkbox, plan dropdown. "Disable 2FA" button (POSTs + audit).
+"Reset password" generates a temp password and emails the user
+(re-uses existing mail patterns; if no mail setup, shows the temp
+password once on screen).
 
-- `routes/web.php` — add under the existing `Route::prefix('dashboard')`:
-  ```php
-  Route::livewire('/agent-key', \App\Livewire\Dashboard\AgentKey::class)
-      ->name('agent-key');
-  ```
-- `resources/views/layouts/app/sidebar.blade.php` — add
-  `<flux:sidebar.item icon="key">` inside the `Forms` group, pointing
-  at `route('dashboard.agent-key')`.
+### `UserShow.php`
+Read-only drill-down: profile, current plan, subscription history,
+forms owned (table), submissions count, last login IP, agent
+token status, audit log entries performed by this user.
 
-**C.4 Feature test** — `tests/Feature/Livewire/Dashboard/AgentKeyTest.php`:
+### `PlansIndex.php`
+List of plans with subs count + revenue column. Sort order editing
+inline. Toggle is_active. Delete (refuses if subs exist).
 
-- Unauthenticated redirect.
-- Authenticated user with no token → "Generate" visible.
-- Click generate → token row in `personal_access_tokens`; modal opens
-  with plaintext.
-- Revoke → token removed; modal closes; audit rows exist.
-
----
-
-### Phase D — Verification & docs
-
-- `vendor/bin/pint --dirty --format agent` after every PHP edit.
-- `php artisan test --compact <file>` per phase.
-- Manual smoke test (documented in `docs/agent-api.md`):
-  1. `php artisan serve` (or `docker compose up`).
-  2. Sign up a fresh user.
-  3. Visit `/dashboard/agent-key` → generate key.
-  4. From terminal:
-     ```bash
-     curl -X POST -H "Authorization: Bearer forms_sk_…" \
-          -F 'form_name=contact' \
-          -F 'html=<input name="email" type="email" required>' \
-          http://localhost:8000/api/agent/forms
-     ```
-     Expect 201 + JSON with `form_url`, `embed_html`.
-  5. Paste `embed_html` into a scratch HTML file → open in browser →
-     submit → verify submission in `/dashboard/submissions/{id}`.
-  6. Open `/llms.txt` → confirm Markdown renders.
-- Add `docs/agent-api.md` with curl example + security notes (treat
-  the key as a password, revoke on rotation).
+### `PlanCreate.php` / `PlanEdit.php`
+Form for all plan fields. Enforces single `is_default` row
+(unsetting other defaults on save).
 
 ---
 
-## Files added / modified
+## 7. Impersonation
+
+Custom implementation (no extra package). Stored in session only.
+
+### `app/Http/Controllers/Admin/ImpersonationController.php`
+
+```php
+public function start(Request $request, User $user): RedirectResponse
+{
+    abort_unless($request->user()->can('impersonate-users'), 403);
+    abort_if($user->isAdmin() && ! $request->user()->isAdmin(), 403);
+    abort_if($user->getKey() === $request->user()->getKey(), 400);
+
+    AuditLog::create([
+        'user_id' => $request->user()->getKey(),
+        'action' => 'admin.impersonation.started',
+        'metadata' => ['impersonated_user_id' => $user->getKey(),
+                       'reason' => $request->input('reason')],
+        'ip_address' => $request->ip(),
+    ]);
+
+    session(['impersonator_id' => $request->user()->getKey()]);
+    Auth::login($user);
+
+    return redirect()->route('dashboard.index');
+}
+
+public function stop(Request $request): RedirectResponse
+{
+    $impersonatorId = session('impersonator_id');
+    abort_unless($impersonatorId, 400);
+
+    $impersonator = User::find($impersonatorId);
+    abort_unless($impersonator, 400);
+
+    AuditLog::create([
+        'user_id' => $impersonatorId,
+        'action' => 'admin.impersonation.stopped',
+        'metadata' => ['impersonated_user_id' => $request->user()->getKey()],
+        'ip_address' => $request->ip(),
+    ]);
+
+    Auth::login($impersonator);
+    session()->forget('impersonator_id');
+
+    return redirect()->route('admin.users.index');
+}
+```
+
+### `app/Http/Middleware/RecordImpersonator.php`
+Records `impersonator_id` on every audit log written during
+impersonation, so the trail is clean.
+
+### `resources/views/components/impersonation-banner.blade.php`
+Persistent banner shown when `session('impersonator_id')` exists.
+"Stop impersonating" button posts to `/admin/users/impersonate/stop`.
+
+### `resources/views/layouts/admin.blade.php`
+Wraps the admin sidebar, includes the impersonation banner, links
+back to the main dashboard, and renders `{{ $slot }}`.
+
+---
+
+## 8. Seeders
+
+### `database/seeders/RolesAndPermissionsSeeder.php` (new)
+Defines roles + permissions, assigns admin perms to admin role.
+
+### `database/seeders/PlanSeeder.php` (new)
+Seeds:
+- **Free** — `is_default=true`, `price_cents=0`, `max_forms=3`,
+  `max_submissions_per_month=100`, `features[] = ['basic']`
+- **Pro** — `price_cents=1900`, `max_forms=25`, `max_submissions_per_month=10000`,
+  `features[] = ['basic','captcha','custom_redirect']`
+- **Enterprise** — `price_cents=9900`, `max_forms=null`,
+  `max_submissions_per_month=null`, `features[] = ['basic','captcha',
+  'custom_redirect','sla','priority_email']`
+
+### `database/seeders/DatabaseSeeder.php` (modify)
+Updated order:
+1. `RolesAndPermissionsSeeder`
+2. `PlanSeeder`
+3. Upsert admin user `admin@example.com` (password `password`, role
+   `admin`, default plan)
+4. Upsert test user `test@example.com` (already exists, assign plan)
+5. `FormSeeder`
+
+---
+
+## 9. Migrations & lifetime hooks
+
+### Plan-limit enforcement
+
+In `FormCreate`:
+```php
+if (! $user->isAdmin()) {
+    $currentCount = Form::query()->ownedBy($user)->count();
+    if ($plan->max_forms !== null && $currentCount >= $plan->max_forms) {
+        $this->addError('name', 'You have reached the form limit on your plan.');
+        return;
+    }
+}
+```
+
+In `SubmissionController::store`:
+```php
+if (! $user->isAdmin() && $plan?->max_submissions_per_month !== null) {
+    $monthCount = FormSubmission::query()
+        ->whereHas('form', fn($q) => $q->where('user_id', $user->id))
+        ->where('created_at', '>=', now()->startOfMonth())
+        ->count();
+    if ($monthCount >= $plan->max_submissions_per_month) {
+        return response()->json(['error' => 'Plan limit reached'], 429);
+    }
+}
+```
+
+---
+
+## 10. Tests
+
+### Feature
+- `tests/Feature/Admin/AdminDashboardTest.php`
+  - non-admin gets 403 on `/admin`
+  - admin sees the dashboard with global KPIs
+- `tests/Feature/Admin/UserManagementTest.php`
+  - list/search/filter users
+  - create user → user is created, role assigned, default sub created
+  - edit user → role/plan changes persist
+  - delete user → cascades forms/submissions/email jobs
+  - delete self forbidden
+- `tests/Feature/Admin/PlanManagementTest.php`
+  - create/update/delete plan
+  - only one `is_default` at a time
+  - delete refused when subs exist
+- `tests/Feature/Admin/ImpersonationTest.php`
+  - admin can impersonate non-admin user
+  - admin cannot impersonate self
+  - user cannot impersonate
+  - stop restores original auth
+  - audit log records both halves
+- `tests/Feature/Admin/PolicyAdminBypassTest.php`
+  - admin may edit/delete other users' forms
+  - admin may view another user's submissions
+- `tests/Feature/PlanLimitsTest.php`
+  - over-limit form creation blocked
+  - over-limit submission blocked
+
+### Unit
+- `tests/Unit/Models/PlanTest.php` — casts, helpers, formattedPrice
+- `tests/Unit/Models/SubscriptionTest.php` — isActive, scopes
+- `tests/Unit/Models/UserPlanResolverTest.php` — currentPlan + fallback
+
+---
+
+## 11. Files inventory (new / modified)
 
 ### New
-
-```
-app/Http/Controllers/Api/AgentFormController.php
-app/Http/Controllers/Api/SubmissionV2Controller.php
-app/Http/Controllers/Api/AgentDocsController.php
-app/Http/Controllers/Api/Concerns/HandlesSubmissionResponses.php
-app/Http/Middleware/AuthenticateAgent.php
-app/Livewire/Dashboard/AgentKey.php
-resources/views/agent/form-created.blade.php
-resources/views/livewire/dashboard/agent-key.blade.php
-tests/Feature/Api/AuthenticateAgentTest.php
-tests/Feature/Api/AgentFormStoreTest.php
-tests/Feature/Api/SubmitV2Test.php
-tests/Feature/Livewire/Dashboard/AgentKeyTest.php
-tests/Unit/Services/Agent/FormHtmlParserTest.php
-tests/Unit/Services/Agent/EmbedSnippetGeneratorTest.php
-docs/agent-api.md
-```
+- `app/Models/Plan.php`
+- `app/Models/Subscription.php`
+- `app/Http/Middleware/EnsureUserIsAdmin.php`
+- `app/Http/Middleware/RecordImpersonator.php`
+- `app/Http/Controllers/Admin/ImpersonationController.php`
+- `app/Livewire/Admin/AdminDashboard.php`
+- `app/Livewire/Admin/UsersIndex.php`
+- `app/Livewire/Admin/UserCreate.php`
+- `app/Livewire/Admin/UserEdit.php`
+- `app/Livewire/Admin/UserShow.php`
+- `app/Livewire/Admin/PlansIndex.php`
+- `app/Livewire/Admin/PlanCreate.php`
+- `app/Livewire/Admin/PlanEdit.php`
+- `app/Providers/PermissionServiceProvider.php`
+- `app/Services/Admin/ImpersonationService.php` *(optional, if logic grows)*
+- `resources/views/layouts/admin.blade.php`
+- `resources/views/layouts/admin/sidebar.blade.php`
+- `resources/views/components/impersonation-banner.blade.php`
+- `resources/views/livewire/admin/admin-dashboard.blade.php`
+- `resources/views/livewire/admin/users-index.blade.php`
+- `resources/views/livewire/admin/user-create.blade.php`
+- `resources/views/livewire/admin/user-edit.blade.php`
+- `resources/views/livewire/admin/user-show.blade.php`
+- `resources/views/livewire/admin/plans-index.blade.php`
+- `resources/views/livewire/admin/plan-create.blade.php`
+- `resources/views/livewire/admin/plan-edit.blade.php`
+- `database/migrations/2026_07_24_210000_create_plans_table.php`
+- `database/migrations/2026_07_24_210001_create_subscriptions_table.php`
+- `database/seeders/RolesAndPermissionsSeeder.php`
+- `database/seeders/PlanSeeder.php`
+- `database/factories/PlanFactory.php`
+- `database/factories/SubscriptionFactory.php`
+- `tests/Feature/Admin/AdminDashboardTest.php`
+- `tests/Feature/Admin/UserManagementTest.php`
+- `tests/Feature/Admin/PlanManagementTest.php`
+- `tests/Feature/Admin/ImpersonationTest.php`
+- `tests/Feature/Admin/PolicyAdminBypassTest.php`
+- `tests/Feature/PlanLimitsTest.php`
+- `tests/Unit/Models/PlanTest.php`
+- `tests/Unit/Models/SubscriptionTest.php`
+- `tests/Unit/Models/UserPlanResolverTest.php`
 
 ### Modified
+- `composer.json` (add `spatie/laravel-permission`)
+- `app/Models/User.php` (HasRoles + relations + helpers)
+- `app/Models/Form.php` (monthly-count scope)
+- `app/Livewire/Dashboard/FormCreate.php` (plan-limit check)
+- `app/Http/Controllers/Api/SubmissionController.php` (plan-limit check)
+- `app/Policies/FormPolicy.php` (admin bypass)
+- `app/Policies/FormSubmissionPolicy.php` (admin bypass)
+- `app/Policies/EmailJobPolicy.php` (admin bypass)
+- `app/Providers/AppServiceProvider.php` (register Permission service provider, keep policy registration)
+- `bootstrap/app.php` (register `admin` middleware alias)
+- `routes/web.php` (require admin routes)
+- `database/seeders/DatabaseSeeder.php` (run new seeders)
 
-```
-app/Http/Controllers/Api/SubmissionController.php    (use the new trait)
-bootstrap/app.php                                     (alias agent.key)
-routes/api.php                                        (4 new routes)
-routes/web.php                                        (/dashboard/agent-key)
-resources/views/layouts/app/sidebar.blade.php         (Forms sidebar item)
+---
+
+## 12. Run / verify
+
+```bash
+# Install
+composer require spatie/laravel-permission --no-interaction
+php artisan vendor:publish --provider="Spatie\Permission\PermissionServiceProvider" --tag=permission-migrations --force
+php artisan migrate
+
+# Seed
+php artisan db:seed
+
+# Static
+vendor/bin/pint --dirty --format agent
+vendor/bin/phpstan analyse
+
+# Tests
+php artisan test --compact --filter=Admin
+php artisan test --compact --filter=PlanLimits
+php artisan test --compact --filter=Plan  # PlanTest + SubscriptionTest + UserPlanResolverTest
+php artisan test --compact  # full suite
+
+# Frontend
+npm run build
 ```
 
 ---
 
-## Risks & open questions
+## 13. Risks & mitigations
 
 | Risk | Mitigation |
 |---|---|
-| DOMDocument breaks on malformed HTML | `FormHtmlParser` already uses `libxml_use_internal_errors(true)` + `LIBXML_NONET`. Unit tests cover malformed snippets. |
-| User crafts HTML that imports a remote resource at parse time | `LIBXML_NONET` blocks external DTDs; we never write the parsed DOM back to the response. |
-| Honeypot detection misses a CSS variation | Already covers `position:absolute;left:-9999px` (matches snippet generator); falls back to name-based heuristic (`honeypot_field` default `website`). |
-| Existing legacy forms in DB have a stale unique slug | Migration already back-fills `user_id`; the legacy `forms_slug_unique` index is dropped. |
-| AI agent retries create-form with the same name | First 201, second 409; agent can retry with `_2` suffix. |
-| Plain HTML form posts from external sites won't carry CSRF | New endpoint accepts a user key (not a session), so CSRF doesn't apply. Spam protection still runs. |
-| Token exposure in the embed snippet | Snippet generator uses a hidden `_user_api` field by default (per clarification 7). `useQueryString=true` mode is opt-in. |
-
-### Deferred (low priority — not in v1)
-
-- `DELETE /api/agent/forms/{slug}` — owner revokes via dashboard.
-- Token expiry (`null` vs 90 days) — keep `null` for v1.
-- Back-compat for `X-Form-Key` on `/api/submit/{slug}` — out of scope;
-  the legacy `/api/forms/{slug}` keeps working unchanged.
-
----
-
-## Acceptance criteria
-
-1. ✅ A new user can sign up, sign in, visit `/dashboard/agent-key`, and
-   generate a `forms_sk_…` key. The plaintext key is shown once in a
-   modal with a copy button; subsequent visits show only last-4 +
-   created-at.
-2. ✅ An external agent can `POST /api/agent/forms` with a Bearer token
-   + multipart `html` + `form_name` and receive
-   `{form_url, slug, name, fields, embed_html}` (no per-form api_key in
-   the payload).
-3. ✅ The returned `embed_html`, pasted into a static HTML page and
-   submitted by a real visitor, creates a `form_submissions` row visible
-   in the dashboard and triggers the existing email pipeline.
-4. ✅ Two different users can each create a form named `contact_form`
-   without slug conflict; the same user cannot create two with the same
-   name (409).
-5. ✅ `GET /llms.txt` returns Markdown listing all agent endpoints with
-   examples; `GET /api/agent/docs` returns the same as JSON.
-6. ✅ All new code passes `php artisan test --compact` and is covered by
-   feature/unit tests.
-7. ✅ Legacy `POST /api/forms/{slug}?api_key=…` continues to work
-   unchanged.
-8. ✅ Browser flow to `POST /api/agent/forms` (`Accept: text/html`)
-   returns an inline Flux page with copy-to-clipboard buttons for the
-   URL and embed snippet.
-
----
-
-## Estimated effort
-
-~1.5–2 focused days. The HTML parser and snippet generator are already
-implemented; this plan mostly wires the missing controller layer, the
-user-facing key management UI, the docs, and the tests.
-
-Implementation order:
-
-1. Phase A (middleware + tests) — ~3 hrs.
-2. Phase B (controllers, routes, traits, success view, tests) — ~6 hrs.
-3. Phase C (Livewire key-management page + sidebar + test) — ~3 hrs.
-4. Phase D (docs + manual smoke test) — ~1 hr.
-
----
-
-## Delivered (commit `bd6bff5 latest changes`)
-
-### File inventory (planned vs actual)
-
-| Planned path | Status | Notes |
-|---|---|---|
-| `app/Http/Controllers/Api/AgentFormController.php` | ✅ 189 lines | |
-| `app/Http/Controllers/Api/SubmissionV2Controller.php` | ✅ 88 lines | |
-| `app/Http/Controllers/Api/AgentDocsController.php` | ✅ 195 lines | |
-| `app/Http/Controllers/Api/Concerns/HandlesSubmissionResponses.php` | ✅ 155 lines | new trait |
-| `app/Http/Middleware/AuthenticateAgent.php` | ✅ 101 lines | |
-| `app/Livewire/Dashboard/AgentKey.php` | ✅ 198 lines | under `Dashboard`, not `Settings` (per decision A) |
-| `resources/views/agent/form-created.blade.php` | ✅ 110 lines | extends `auth.simple` layout |
-| `resources/views/livewire/dashboard/agent-key.blade.php` | ✅ 170 lines | |
-| `tests/Feature/Api/AuthenticateAgentTest.php` | ✅ 151 lines, 9 tests | |
-| `tests/Feature/Api/AgentFormStoreTest.php` | ✅ 352 lines, 15 tests | |
-| `tests/Feature/Api/SubmitV2Test.php` | ✅ REMOVED in revision 2 | submission endpoint moved back to `/api/forms/{slug}` |
-| `tests/Feature/Api/VerifyFormApiKeyTest.php` | ✅ 8 tests | new in revision 2; verifies the per-form middleware accepts the key from header / query / POST body |
-| `tests/Feature/Livewire/Dashboard/AgentKeyTest.php` | ✅ 167 lines, 10 tests | |
-| `tests/Unit/Services/Agent/FormHtmlParserTest.php` | ✅ 185 lines, 14 tests | |
-| `tests/Unit/Services/Agent/EmbedSnippetGeneratorTest.php` | ✅ 135 lines, 7 tests | |
-| `tests/Feature/Api/AgentDocsTest.php` | ✅ 4 tests | not in original plan; added when building docs |
-| `tests/Feature/AgentWorkflowSmokeTest.php` | ✅ 1 test, end-to-end | not in original plan; added in Phase D |
-| `docs/agent-api.md` | ✅ 153 lines | |
-| `database/migrations/2026_07_24_102346_drop_endpoint_unique_from_forms_table.php` | ✅ | not in original plan; needed to allow same-slug forms across users |
-
-### Modified files
-
-| Planned path | Status |
-|---|---|
-| `app/Http/Controllers/Api/SubmissionController.php` | ✅ slimmed to 91 lines via shared trait |
-| `bootstrap/app.php` | ✅ added `agent.key` alias |
-| `routes/api.php` | ✅ added 4 routes |
-| `routes/web.php` | ✅ added `/dashboard/agent-key` |
-| `resources/views/layouts/app/sidebar.blade.php` | ✅ added `Forms agent API` item |
-
-### Deltas from the original plan
-
-1. **Livewire component lives at `Dashboard\AgentKey`, not `Settings\AgentKey`**
-   — the user picked "Forms sidebar group" (decision A) in the clarify
-   phase, which pushed it out of the `Settings` namespace.
-2. **New migration to drop `forms.endpoint` global unique index** — without
-   this, two users couldn't each own a form named `contact_form` because
-   the `endpoint` string defaulted to `/api/forms/contact` and the
-   column was globally unique. The migration is best-effort reversible.
-3. **Bug fix: `Form::$fillable` was missing `auto_discover_fields`** — a
-   pre-existing issue that surfaced once `AgentFormController` tried to
-   set the value via `Model::create()`. The factory worked around it
-   because factories bypass the fillable filter.
-4. **`min_submission_seconds` defaults to `0` for agent-created forms**
-   — the embed snippet is plain HTML with no JS, so a `_timestamp` field
-   rendered at snippet-creation time would always fail the timing check
-   on real visitor submissions. Agents can opt back in via the new
-   `min_submission_seconds` request parameter.
-5. **`FormHtmlParser` deprecation fix** — `mb_convert_encoding(..., 'HTML-ENTITIES')`
-   triggers a PHP 8.5 deprecation. Replaced with `htmlspecialchars_decode`.
-6. **Added `tests/Feature/Api/AgentDocsTest.php`** — the original plan
-   didn't explicitly call out docs tests; added them when Phase B.5
-   landed.
-7. **Added `tests/Feature/AgentWorkflowSmokeTest.php`** — an end-to-end
-   test that exercises the entire pipeline (sign up → generate key →
-   agent POST → visitor submits → submission row created → email job
-   queued). Caught the `min_submission_seconds` bug during this work.
-
-### Final quality gate
-
-```
-$ composer run test
-> pint --parallel --test       passed
-> phpstan analyse             passed, errors: 0
-> @php artisan test           passed, tests: 255, assertions: 690
-```
-
-### Acceptance criteria — verified
-
-1. ✅ User signs up, signs in, generates `forms_sk_…` from
-   `/dashboard/agent-key`. Plaintext shown once in a modal with copy
-   button; subsequent visits show last-4 + created-at + last-used-at.
-2. ✅ External agent POSTs `/api/agent/forms` with Bearer + multipart
-   `html` + `form_name` and receives
-   `{form_url, slug, name, fields, embed_html}` (no per-form api_key).
-3. ✅ `embed_html` pasted into a static page + submitted by a visitor
-   creates a `form_submissions` row and queues an email job
-   (`AgentWorkflowSmokeTest::test_complete_agent_workflow_end_to_end`).
-4. ✅ Two different users can each create a `contact_form`; same user
-   cannot (409).
-5. ✅ `GET /api/llms.txt` returns Markdown; `GET /api/agent/docs`
-   returns the same as JSON.
-6. ✅ `composer run test` is green.
-7. ✅ Legacy `POST /api/forms/{slug}?api_key=…` continues to work —
-   all 5 pre-existing `tests/Feature/Api/Submission*Test.php` tests
-   still pass.
-8. ✅ Browser flow to `POST /api/agent/forms` (`Accept: text/html`)
-   returns the inline Flux page with copy-to-clipboard buttons for the
-   URL and embed snippet; the user's plaintext key is replaced with
-   `__YOUR_FORMS_KEY__` placeholder in the HTML response (the agent
-   received the real key in their POST response payload).
-
-### Uncommitted working-tree deltas
-
-After `bd6bff5` and the follow-up commit `330ecb2` (Phase D cleanup),
-the **Revision 2 key-scope split** introduces additional changes (see
-below). Run `git status` after the next commit lands to see them.
-
----
-
-## Revision 2 — key-scope split (creation-only user key, per-form key for submissions)
-
-Triggered by a user requirement: "when a form is created using the api
-key, a per_form api key should be returned so that api that is used
-for creation only used for creation not for other stuff, and it needs
-to be secure". This reverses original clarification #6 ("hide the
-per-form api_key from the agent").
-
-### New flow
-
-| Stage | Auth | Endpoint | Payload |
-|---|---|---|---|
-| Create form | `forms-agent` (user key) | `POST /api/agent/forms` | Returns `{form_url, slug, name, api_key, fields, embed_html}` |
-| Embed snippet | — | — | Snippet posts to `/api/forms/{slug}` with per-form `api_key` as hidden body field |
-| Visitor submits | per-form `api_key` | `POST /api/forms/{slug}` | Existing endpoint; treats the key the same way it always did for legacy forms |
-
-The forms-agent key is **creation-only** — it cannot authenticate a
-submission. The per-form `api_key` is **submission-only** — it cannot
-create a new form. Both keys are restricted by the Sanctum token
-name on creation and by the middleware on use, so an attacker can't
-mix them up.
-
-### Files changed in Revision 2
-
-| File | Change |
-|---|---|
-| `app/Http/Controllers/Api/AgentFormController.php` | Includes `api_key` in response payload; passes per-form key to snippet generator; dropped the old `currentKeyForSnippet()` / `extractSentKey()` helpers |
-| `app/Http/Controllers/Api/SubmissionV2Controller.php` | **REMOVED** — submissions go through the legacy controller |
-| `app/Http/Controllers/Api/Concerns/HandlesSubmissionResponses.php` | unchanged (still shared) |
-| `app/Http/Middleware/VerifyFormApiKey.php` | Now accepts `api_key` from POST body (in addition to header/query) |
-| `app/Services/Agent/EmbedSnippetGenerator.php` | Form action is `/api/forms/{slug}`; `api_key` is in a hidden body field; dropped the `_user_api` concept and the `useQueryString` mode |
-| `app/Services/FormSubmissionService.php` | `stripControlFields()` also strips `api_key` (so the validator doesn't reject it as an unknown field) |
-| `routes/api.php` | Removed `POST /api/submit/{slug}` and the `SubmissionV2Controller` reference |
-| `tests/Feature/Api/SubmitV2Test.php` | **REMOVED** |
-| `tests/Feature/Api/VerifyFormApiKeyTest.php` | **NEW** — 8 tests covering the four key transport modes |
-| `tests/Feature/Api/AgentFormStoreTest.php` | Asserts `api_key` IS in response; updated browser-flow assertions |
-| `tests/Unit/Services/Agent/EmbedSnippetGeneratorTest.php` | Asserts per-form key in body field, not user-key in URL or `_user_api` field |
-| `tests/Feature/AgentWorkflowSmokeTest.php` | End-to-end test updated for new flow |
-| `docs/agent-api.md` | Rewritten with the two-key model, explicit security notes about the forms-agent key never appearing in HTML |
-| `.pi/PLAN.md` | This revision |
-
-### Security improvements over Revision 1
-
-- **Forms-agent key never embeds in HTML.** It only travels as an
-  `Authorization: Bearer …` header on the agent's API call. If the
-  snippet leaks (CDN scrapes, browser extensions, server logs), the
-  attacker gets only the per-form key — useless for creating forms
-  on any account.
-- **Per-form key never appears in URL.** It rides in the POST body,
-  so it doesn't leak into browser history, server access logs, or
-  `Referer` headers when the user clicks links on their success page.
-- **Key reuse is denied.** `VerifyFormApiKey` rejects the
-  forms-agent token at `/api/forms/{slug}` (returns 401). `AuthenticateAgent`
-  rejects the per-form api_key at `/api/agent/forms` because it isn't
-  a Sanctum token at all.
-- **Single-purpose tokens.** Each key does exactly one thing, which
-  makes the blast radius of any leak small and the audit log
-  meaningful.
-
-### Acceptance criteria — Revision 2
-
-1. ✅ `POST /api/agent/forms` returns `api_key` in the response payload.
-2. ✅ The returned snippet posts to `/api/forms/{slug}` with the
-   per-form `api_key` as a hidden body field (never in the URL).
-3. ✅ The snippet does NOT contain the forms-agent user-key.
-4. ✅ The forms-agent key cannot be used to submit (401 from the
-   per-form middleware).
-5. ✅ All 255 tests pass; pint + phpstan clean.
-
----
-
-## Revision 3 — SaaS isolation (per-user forms + stats)
-
-Triggered by: "every user has his own forms, forms aren't accessiable
-by different users, and different users have different form stats
-it's a saas app".
-
-### What was broken before
-
-`Form::user_id` existed and forms created from the dashboard set it,
-but the dashboard pages never **enforced** it: any signed-in user
-could go to `/dashboard/forms/{id}/edit` for any other user's form
-and edit it. `FormsIndex` listed all forms in the database to every
-user. `Analytics` counted every user's submissions. The `api_key`
-on the form was the only thing distinguishing forms from one
-another, but with form data, submissions, and email jobs all
-exposed across users, this was a multi-tenant failure.
-
-### What changed
-
-1. **Three new policies** map Eloquent models to authorisation:
-   - `App\Policies\FormPolicy` — `view`, `update`, `archive`,
-     `regenerateApiKey`, `delete`. All check
-     `form.user_id === user.id`.
-   - `App\Policies\FormSubmissionPolicy` — `view`. Checks
-     `submission.form.user_id === user.id`.
-   - `App\Policies\EmailJobPolicy` — `view`. Same check via
-     `emailJob.submission.form`.
-2. **Policies registered** in `AppServiceProvider::registerPolicies()`.
-3. **Every Dashboard Livewire** that touches a form, submission, or
-   email job now calls `$this->authorize('verb', $model)` in
-   `mount()` and every action method.
-4. **Every list query** in the Dashboard Livewire is scoped by
-   `Auth::id()`:
-   - `FormsIndex::forms()` — `->ownedBy(Auth::user())`
-   - `SubmissionsIndex::buildQuery()` —
-     `whereHas('form', fn ($q) => $q->where('user_id', Auth::id()))`
-   - `EmailJobs::buildQuery()` — same
-   - `Analytics::totalSubmissions`, `totalForms`, `activeForms`,
-     `submissionsByDay`, `submissionsByForm`,
-     `emailStatusBreakdown` — all scoped
-5. **New cross-user isolation test file**
-   `tests/Feature/Dashboard/SaasIsolationTest.php` — 15 tests
-   covering every attack surface (edit, demo, archive, restore,
-   delete, regenerate key, view submission, mark submission read,
-   view email job, retry email job, forms index, submissions
-   index, analytics counts).
-
-### Files changed in Revision 3
-
-**New:**
-- `app/Policies/FormPolicy.php`
-- `app/Policies/FormSubmissionPolicy.php`
-- `app/Policies/EmailJobPolicy.php`
-- `tests/Feature/Dashboard/SaasIsolationTest.php` (15 tests)
-
-**Modified (policies / ownership checks):**
-- `app/Providers/AppServiceProvider.php` — `registerPolicies()`
-- `app/Livewire/Dashboard/FormsIndex.php` — `authorize()` in actions + `ownedBy()` in list query
-- `app/Livewire/Dashboard/FormEdit.php` — `authorize()` in `mount()` and every action
-- `app/Livewire/Dashboard/FormDemo.php` — `authorize()` in `mount()` and `submit()`
-- `app/Livewire/Dashboard/SubmissionsIndex.php` — `authorize()` in `markRead`/`markSpam` + `whereHas('form', ownedBy)` in list
-- `app/Livewire/Dashboard/SubmissionShow.php` — `authorize('view', $submission)` in `mount()`
-- `app/Livewire/Dashboard/EmailJobs.php` — `authorize()` in `retry` + `ownedBy()` filter
-- `app/Livewire/Dashboard/EmailJobShow.php` — `authorize('view', $job)` in `mount()` and `retry()`
-- `app/Livewire/Dashboard/Analytics.php` — every `#[Computed]` scoped by `whereHas('form', ownedBy)`
-
-**Modified (existing tests updated to use `actingAs` + `ownedBy`):**
-- `tests/Feature/Dashboard/FormsIndexTest.php`
-- `tests/Feature/Dashboard/FormEditTest.php`
-- `tests/Feature/Dashboard/FormEditProtectionTest.php`
-- `tests/Feature/Dashboard/FormDemoTest.php`
-- `tests/Feature/Dashboard/FormExportImportTest.php`
-- `tests/Feature/Dashboard/SubmissionShowTest.php`
-- `tests/Feature/Dashboard/SubmissionsIndexTest.php`
-- `tests/Feature/Dashboard/EmailJobsTest.php`
-- `tests/Feature/Dashboard/AnalyticsTest.php`
-
-**Modified (factories):**
-- `database/factories/FormSubmissionFactory.php` — added
-  `forFormOwnedBy(User $user)` state for the test suite
-
-### Acceptance criteria — Revision 3
-
-1. ✅ Every dashboard action calls `$this->authorize(...)` before mutating.
-2. ✅ Every list query is scoped by `Auth::id()`.
-3. ✅ `tests/Feature/Dashboard/SaasIsolationTest.php` proves a
-   second user cannot view, edit, archive, restore, delete, or
-   regenerate the API key on another user's form, nor view / retry
-   another user's email job, nor see another user's forms /
-   submissions in list views, nor have their analytics polluted by
-   another user's data.
-4. ✅ All 270 tests pass; pint + phpstan clean.
+| Spatie permission cache stale after seeder changes | `$permission->forgetCachedPermissions()` in seeder |
+| Existing tests fail when admin user also exists in DB | Seeder creates admin but tests use `User::factory()`; assert role via `->assignRole()` instead of relying on seed |
+| `composer require` pulls breaking versions | Pin `spatie/laravel-permission: ^6.0` in composer.json |
+| Admin can accidentally delete themselves | Ban `delete` when `$user->id === auth()->id()` in controller + Livewire action |
+| Plan-limit checks add latency to submission | Check is a single `COUNT`; cheaper than the existing form-key lookup |
+| Impersonation banner leaks after admin logs out | Clear `impersonator_id` on `Auth::logout()` event listener |
+| Free plan missing on existing users (legacy forms) | Seeder auto-creates a `Subscription` row at the default plan for any user missing one when `DatabaseSeeder` runs |

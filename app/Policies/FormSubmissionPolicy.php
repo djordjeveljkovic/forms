@@ -28,6 +28,10 @@ class FormSubmissionPolicy
 
     protected function isOwner(User $user, FormSubmission $submission): bool
     {
+        if ($user->isAdmin()) {
+            return true;
+        }
+
         $form = $submission->form;
 
         // If the form was deleted or relation isn't loaded, fail closed.

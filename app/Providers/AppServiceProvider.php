@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Http\Middleware\RecordImpersonator;
+use App\Models\AuditLog;
 use App\Models\EmailJob;
 use App\Models\Form;
 use App\Models\FormSubmission;
@@ -38,6 +40,7 @@ class AppServiceProvider extends ServiceProvider
         $this->configureRateLimiters();
         $this->configureTrustedProxies();
         $this->registerPolicies();
+        $this->registerImpersonationAuditHook();
     }
 
     /**
@@ -92,6 +95,26 @@ class AppServiceProvider extends ServiceProvider
             $key = $formKey !== '' ? sha1($formKey.'|'.$request->ip()) : $request->ip();
 
             return Limit::perHour($perHour)->by($key);
+        });
+    }
+
+    /**
+     * Wire up the impersonation audit-log hook.
+     *
+     * When an admin is logged in as another user, the session carries
+     * an `impersonator_id`. We use Eloquent's `creating` event on the
+     * AuditLog model to stamp that id into the new row's `metadata`
+     * so the audit trail always shows who *really* performed the
+     * action.
+     */
+    protected function registerImpersonationAuditHook(): void
+    {
+        if (! AuditLog::class) {
+            return;
+        }
+
+        AuditLog::creating(function (AuditLog $log): void {
+            RecordImpersonator::stampAuditLog($log);
         });
     }
 

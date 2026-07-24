@@ -48,6 +48,12 @@ class SubmissionController extends Controller
             ], 403);
         }
 
+        if ($this->overMonthlySubmissionLimit($form)) {
+            return response()->json([
+                'message' => 'Form owner has reached their plan submission limit for this month.',
+            ], 429);
+        }
+
         $data = $this->extractSubmissionData($request);
         $redirectUrl = $this->resolveRedirectUrl($request, $form);
 

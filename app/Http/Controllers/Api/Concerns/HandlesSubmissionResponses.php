@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Concerns;
 
 use App\Models\Form;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -151,5 +152,20 @@ trait HandlesSubmissionResponses
             ->all();
 
         return $originHost && ! in_array($originHost, $merged, true);
+    }
+
+    /**
+     * Determine whether the form's owner has reached their plan's
+     * monthly submission limit. Admins always pass.
+     */
+    protected function overMonthlySubmissionLimit(Form $form): bool
+    {
+        $owner = $form->user;
+
+        if (! $owner instanceof User) {
+            return false;
+        }
+
+        return $owner->hasReachedMonthlySubmissionLimit();
     }
 }

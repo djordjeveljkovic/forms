@@ -24,6 +24,10 @@ class EmailJobPolicy
 
     protected function isOwner(User $user, EmailJob $job): bool
     {
+        if ($user->isAdmin()) {
+            return true;
+        }
+
         $submission = $job->submission;
         if ($submission === null) {
             return false;

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\AuthenticateAgent;
+use App\Http\Middleware\EnsureUserIsAdmin;
 use App\Http\Middleware\VerifyFormApiKey;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -18,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'form.key' => VerifyFormApiKey::class,
             'agent.key' => AuthenticateAgent::class,
+            'admin' => EnsureUserIsAdmin::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
