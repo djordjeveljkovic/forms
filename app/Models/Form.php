@@ -10,12 +10,14 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
 /**
  * @property int $id
+ * @property int|null $user_id
  * @property string $name
  * @property string $slug
  * @property string|null $description
@@ -43,6 +45,7 @@ use Illuminate\Support\Str;
  * @property Carbon|null $updated_at
  */
 #[Fillable([
+    'user_id',
     'name',
     'slug',
     'description',
@@ -101,7 +104,7 @@ class Form extends Model
     {
         static::creating(function (Form $form): void {
             $form->api_key ??= self::generateApiKey();
-            $form->slug ??= self::generateUniqueSlug($form->name ?? 'form');
+            $form->slug ??= self::generateUniqueSlug($form->name ?? 'form', $form->user_id);
             $form->endpoint ??= '/api/forms/'.$form->slug;
             $form->subject_template ??= 'New submission for :form_name';
             $form->success_message ??= 'Thank you for your submission.';
@@ -128,15 +131,23 @@ class Form extends Model
     }
 
     /**
-     * Generate a unique slug from a name.
+     * Generate a slug unique within a user's namespace.
+     *
+     * @param  int|null  $userId  null falls back to global uniqueness,
+     *                            used when ownership hasn't been wired yet
      */
-    public static function generateUniqueSlug(string $name): string
+    public static function generateUniqueSlug(string $name, ?int $userId = null): string
     {
         $base = Str::slug($name) ?: 'form';
         $slug = $base;
         $i = 2;
 
-        while (self::query()->where('slug', $slug)->exists()) {
+        $query = self::query();
+        if ($userId !== null) {
+            $query->where('user_id', $userId);
+        }
+
+        while ((clone $query)->where('slug', $slug)->exists()) {
             $slug = $base.'-'.$i++;
         }
 
@@ -168,6 +179,16 @@ class Form extends Model
         }
 
         return FormStatus::Active;
+    }
+
+    /**
+     * Get the user that owns this form.
+     *
+     * @return BelongsTo<User, $this>
+     */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
     }
 
     /**
@@ -227,6 +248,17 @@ class Form extends Model
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('is_archived', false);
+    }
+
+    /**
+     * Scope to forms owned by the given user.
+     *
+     * @param  Builder<Form>  $query
+     * @return Builder<Form>
+     */
+    public function scopeOwnedBy(Builder $query, User $user): Builder
+    {
+        return $query->where('user_id', $user->id);
     }
 
     /**

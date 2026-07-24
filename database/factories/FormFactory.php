@@ -22,6 +22,7 @@ class FormFactory extends Factory
         $name = is_array($words) ? implode(' ', $words) : $words;
 
         return [
+            'user_id' => null,
             'name' => ucwords($name),
             'slug' => Str::slug($name).'-'.Str::random(6),
             'description' => fake()->sentence(),
@@ -47,6 +48,16 @@ class FormFactory extends Factory
             'is_archived' => false,
             'archived_at' => null,
         ];
+    }
+
+    /**
+     * Assign the form to a specific user.
+     */
+    public function ownedBy(\App\Models\User $user): static
+    {
+        return $this->state(fn (): array => [
+            'user_id' => $user->id,
+        ]);
     }
 
     /**
